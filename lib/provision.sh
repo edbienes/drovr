@@ -126,19 +126,24 @@ print("unknown"); sys.exit(1)
 ' "$1"
 }
 
-# _devloop_busy <pane_id> <label> : exit 0 iff the pane is ACTIVELY working. Claude panes: agent_status is
-# reliable ('working'). grok: agent_status reads 'idle' for SUSTAINED stretches mid-run (observed live
-# 2026-06-13/-15), so it is NOT a valid working signal — trust the RENDERED footer instead. A live grok turn
-# shows `Ctrl+c:cancel` + `Ctrl+Enter:interject` in the hint bar (both ABSENT at idle) plus a `⇣<count>`
-# token-stream meter; an idle grok shows only `Shift+Tab:mode │ Ctrl+.:shortcuts` (verified live). Keyed on
-# `Ctrl+c:cancel` (the gold cancel-affordance). LIBERAL by design: both call sites take "busy" as the SAFE
-# answer (don't re-deliver a trigger / don't reprompt), and grok COMPLETION is always read from the report-
-# file sentinel (bus_ready), never from this predicate — so an occasional false-busy only costs a wait, never
-# a missed result. External-only `herdr … | grep` pipeline + single-command subst → setpgrp-flake-safe.
+# _devloop_busy <pane_id> <label> : exit 0 iff the pane must NOT be fired into. Claude panes: agent_status
+# is reliable ('working'). grok: agent_status is ALSO reliable since herdr's Grok Build detection manifest
+# ≥ 2026.07.03.1 (herdr#1055 rewrote it for ≥0.2.8x chrome; verified live 2026-07-09 on 0.2.93:
+# idle→working→blocked→idle all correct, working SUSTAINED across polls). The old footer scrape keyed on
+# `Ctrl+c:cancel` is retired — in current chrome that string renders during working AND in the blocked
+# dialog footer, so it was ambiguous. Grok busy = working OR blocked OR unknown: blocked stays busy because
+# firing text into a waiting dialog corrupts it (the old scrape protected this by accident — keep it on
+# purpose); unknown (detection gap / manifest regression) stays busy because busy is the LIBERAL/safe
+# answer — both call sites take "busy" as "wait, don't re-deliver", and grok COMPLETION is always read from
+# the report-file sentinel (bus_ready), never from this predicate, so a false-busy only costs a wait, never
+# a missed result. Snapshot + here-string form → setpgrp-flake-safe.
 _devloop_busy() {
   local pid="$1" label="$2"
   if [ "$label" = grok-pressure-test ]; then
-    herdr pane read "$pid" --source visible 2>/dev/null | grep -qE 'Ctrl\+c:cancel|Ctrl\+Enter:interject|⇣[0-9]'
+    local snap st
+    snap="$(devloop_panes)"
+    st="$(pane_status_for_label "$label" <<< "$snap" 2>/dev/null || echo unknown)"
+    [ "$st" = working ] || [ "$st" = blocked ] || [ "$st" = unknown ]
   elif [ "$label" = forge-implementation ] || [ "$label" = grok-headless-implementation ]; then
     # forge/grok-headless panes are shells, not agents — busy iff the headless exec process is running. Like
     # the grok branch this is LIBERAL (completion is read from the bus_ready result.md sentinel, never from here, so
@@ -166,11 +171,17 @@ _devloop_alive() {
   local pid="$1" label="$2"
   case "$label" in
     grok-pressure-test|grok-implementation)
-      # Two live signatures: mid-session footer (Shift+Tab/Ctrl+…/⇣n) OR the fresh-boot HOME screen
-      # (box-drawn composer `│ ❯` / `Grok Build <ver>` banner — grok 0.2.87 renders NO shortcut footer
-      # until a session starts, which false-dead'd a just-relaunched pane live 2026-07-07). Home anchors
-      # are chrome a bare zsh can't render; deliberately NOT `always-approve`, which a crashed-to-shell
-      # pane still shows in its typed launch command.
+      # PRIMARY: agent_status — reliable for grok since manifest ≥ 2026.07.03.1 (herdr#1055), and the
+      # fresh-boot home screen now detects as `idle` (verified live 2026-07-09 on 0.2.93), so the old
+      # home-screen false-dead is gone. Any real status = a live grok; a bare/crashed-to-zsh shell reads
+      # `unknown`. FALLBACK on `unknown` only (alive FAILS CLOSED downstream, so a detection gap must not
+      # brick dispatch): scrape chrome a bare zsh can't render — mid-session footer, streaming meter, or
+      # the home-screen composer/banner. Deliberately NOT `always-approve`, which a crashed-to-shell pane
+      # still shows in its typed launch command.
+      local snap st
+      snap="$(devloop_panes)"
+      st="$(pane_status_for_label "$label" <<< "$snap" 2>/dev/null || echo unknown)"
+      [ "$st" != unknown ] && return 0
       herdr pane read "$pid" --source visible 2>/dev/null \
         | grep -qE 'Shift\+Tab:mode|Ctrl\+\.:shortcuts|Ctrl\+c:cancel|Ctrl\+Enter:interject|⇣[0-9]|│ ❯|Grok Build +[0-9]'
       ;;

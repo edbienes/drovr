@@ -21,8 +21,8 @@ mentions are prose/safety rules only.
 | 5 | `provision.sh:82` `devloop_send_slash` | `pane send-text` | long/slash text, no Enter (paste-pill semantics) | stub counts 1 text send |
 | 6 | `provision.sh:84` `devloop_send_slash` | `pane send-keys <pid> Enter` | discrete submit (key name is `Enter`, NOT `Return`) | stub counts exactly 2 Enters |
 | 7 | `provision.sh:100` | `pane send-keys <pid> Enter` | unstick a bracketed-paste pill | grep-pinned |
-| 8 | `provision.sh:141` `_devloop_busy` (grok arm) | `pane read --source visible` | busy = rendered footer scrape (`Ctrl+c:cancel`/`⇣n`); grok `agent_status` false-idles mid-run | grep-pinned patterns |
-| 9 | `provision.sh:174` `_devloop_alive` (grok arm) | `pane read --source visible` | liveness incl. fresh-boot home-screen anchors (`│ ❯`, `Grok Build <n>`) | grep-pinned patterns |
+| 8 | `_devloop_busy` (grok arm) | `pane list --workspace` (status) | busy = `agent_status` ∈ working/blocked/unknown (reliable since grok manifest ≥ 2026.07.03.1, herdr#1055; verified live 2026-07-09 on 0.2.93) | functional stubs |
+| 9 | `_devloop_alive` (grok arm) | `pane list --workspace` + `pane read` fallback | alive = any real `agent_status`; chrome scrape kept ONLY as the `unknown` fallback (fail-closed callers) | grep-pinned fallback |
 | 10 | `provision.sh:282` `_devloop_settle` | `wait agent-status --status idle` | post-`/clear` settle before fire (`wait output` glyph-match is FORBIDDEN — test asserts its absence) | grep-pinned |
 | 11 | `provision.sh:343` `provision_role` | `pane split --no-focus` | create role pane from its anchor (JSON → `result.pane.pane_id`) | LIVE dry-run only |
 | 12 | `provision.sh:345` `provision_role` | `pane rename` | label the role pane | LIVE dry-run only |
@@ -44,8 +44,10 @@ The coupling is semantics, not CLI shape:
 3. `pane run` = send-text + bundled Enter in ONE request → long text becomes an UNSUBMITTED
    paste pill. Discrete `send-text` then `send-keys Enter` is the only reliable long-text path.
 4. Key name is `Enter`; `send-keys Return` is a silent no-op.
-5. `agent_status` is reliable for Claude panes, NOT for grok TUI panes (sustained false-idle
-   mid-run; no footer on the 0.2.87 home screen) → screen-scrape heuristics in #8/#9.
+5. `agent_status` is reliable for Claude panes AND (since detection manifest ≥ 2026.07.03.1,
+   herdr#1055) for Grok Build panes — verified live 2026-07-09 on 0.2.93 through
+   idle→working→blocked→idle including the fresh-boot home screen. The manifest version is
+   part of the host floor; a chrome scrape survives only as `_devloop_alive`'s unknown-fallback.
 6. `pane read --source visible` renders the current viewport (the scrape substrate).
 7. `pane split` JSON shape (`result.pane.pane_id`); `pane rename`; `wait agent-status`.
 

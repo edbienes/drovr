@@ -26,9 +26,10 @@ contract (what a herdr version bump can break):
 3. Long text must be sent as discrete `pane send-text` + `pane send-keys <pid> Enter`
    (`pane run` bundles Enter into one request and leaves an unsubmitted paste pill).
 4. The submit key name is `Enter` — `send-keys Return` is a silent no-op.
-5. `agent_status` (`idle|working|blocked|done|unknown`) is reliable for Claude panes but
-   false-idles for Grok TUI panes; devloop scrapes `pane read --source visible` for those
-   (see `docs/upstream/grok-agent-status-false-idle.md`).
+5. `agent_status` (`idle|working|blocked|done|unknown`) is reliable for Claude panes and —
+   with the Grok Build detection manifest ≥ **2026.07.03.1** (herdr#1055, auto-fetched;
+   check `herdr server agent-manifests`) — for Grok panes too. The manifest version is part
+   of this host floor (see `docs/upstream/grok-agent-status-false-idle.md`).
 6. `pane split --no-focus` JSON shape (`result.pane.pane_id`), `pane rename`,
    `wait agent-status`.
 
