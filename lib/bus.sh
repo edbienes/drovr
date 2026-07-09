@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # bus.sh — file-as-IPC bus contract for the dev-loop control room (review stage).
 # SOURCED by the orchestrator. Do NOT `set -e` here (would leak into the caller's shell).
-# All bus I/O is by ABSOLUTE path under ~/.devloop/<repo-slug>/<task>/ — outside any checkout (spec §15).
+# All bus I/O is by ABSOLUTE path under ~/.drovr/<repo-slug>/<task>/ — outside any checkout (spec §15).
 
 BUS_SENTINEL="END-OF-FILE"
 
-_bus_root()  { printf '%s\n' "${DEVLOOP_BUS_ROOT:-$HOME/.devloop}"; }
-_bus_slug()  { printf '%s\n' "${DEVLOOP_REPO_SLUG:-$(basename "$(git rev-parse --show-toplevel)")}"; }
+_bus_root()  { printf '%s\n' "${DROVR_BUS_ROOT:-$HOME/.drovr}"; }
+_bus_slug()  { printf '%s\n' "${DROVR_REPO_SLUG:-$(basename "$(git rev-parse --show-toplevel)")}"; }
 _bus_base()  { printf '%s/%s\n' "$(_bus_root)" "$(_bus_slug)"; }
 
 # bus_task_dir <task> : ensure <root>/<slug>/<task>/reviews exists; echo the task dir.

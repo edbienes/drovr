@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# assert.sh — tiny assertion helpers for the devloop unit tests. No bats dependency.
+# assert.sh — tiny assertion helpers for the drovr unit tests. No bats dependency.
 # Each assert prints PASS/FAIL and increments counters in the sourcing script.
 ASSERT_PASS=0
 ASSERT_FAIL=0

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # grok-review.sh — headless deep-reasoning Grok review lens via OpenCode (SuperGrok subscription, OAuth).
 # Drop-in for the resident grok-pressure-test pane: writes adversarial findings to the SAME bus file the
-# loop already polls (reviews/grok.md, END-OF-FILE sentinel via bus_write), so devloop_collect_* is unchanged.
+# loop already polls (reviews/grok.md, END-OF-FILE sentinel via bus_write), so drovr_collect_* is unchanged.
 #
 # Grok has NO reasoning-effort knob (grok-CLI --effort is a no-op for grok-build/composer; OpenCode has none).
 # Depth is selected by MODEL, set once at framing by the slice's tier:
@@ -20,7 +20,7 @@ _LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$_LIB/bus.sh"
 
 task="${1:?task}"; rel="${2:?relpath}"; repo="${3:?repo path}"; target="${4:?target desc}"
-export DEVLOOP_REPO_SLUG="${DEVLOOP_REPO_SLUG:-$(basename "$repo")}"   # so bus paths resolve in a detached shell
+export DROVR_REPO_SLUG="${DROVR_REPO_SLUG:-$(basename "$repo")}"   # so bus paths resolve in a detached shell
 
 model="xai/grok-4.3"
 [ "${DL_TIER:-}" = tier1 ] && model="xai/grok-4.20-multi-agent-0309"

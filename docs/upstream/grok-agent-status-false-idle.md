@@ -15,7 +15,7 @@ was live; before filing we found herdr had already fixed it:
 
 ## Consequence for drovr (the real follow-up)
 
-drovr's grok screen-scrape heuristics (`_devloop_busy`/`_devloop_alive`, touchpoints #8/#9)
+drovr's grok screen-scrape heuristics (`_drovr_busy`/`_drovr_alive`, touchpoints #8/#9)
 were built against the PRE-fix chrome and are now stale in the dangerous direction:
 
 - Busy anchor `Ctrl+c:cancel` no longer appears during working turns — in current chrome it

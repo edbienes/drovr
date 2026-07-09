@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run-tests.sh — run all devloop unit tests, aggregate pass/fail.
+# run-tests.sh — run all drovr unit tests, aggregate pass/fail.
 set -u
 cd "$(dirname "$0")"
 rc=0

@@ -8,21 +8,21 @@ An orchestrator agent dispatches an implementation brief to a coding agent in an
 worktree pane, runs a repo-declared quality gate in that worktree, fans the branch out to two
 independent review lenses (Claude `/code-review` + Grok `/pressure-test`), iterates on failure
 (capped), and stops at a **human-gated merge**. All coordination happens over a plain
-filesystem bus (`~/.devloop/<repo>/<task>/…`, sentinel `END-OF-FILE`) — pane state is used only
+filesystem bus (`~/.drovr/<repo>/<task>/…`, sentinel `END-OF-FILE`) — pane state is used only
 for delivery guarantees, never for task completion.
 
 The harness is repo-agnostic: everything repo-specific (gate commands, policy-checker agents,
-worktree base, default implementation arm) comes from the consumer repo's `.devloop/config`.
+worktree base, default implementation arm) comes from the consumer repo's `.drovr/config`.
 
 ## Supported host
 
-devloop runs **inside herdr** — herdr is a documented, version-bounded prerequisite, not an
+drovr runs **inside herdr** — herdr is a documented, version-bounded prerequisite, not an
 abstraction target. Tested against **herdr 0.7.3** (protocol 16). The load-bearing host
 contract (what a herdr version bump can break):
 
 1. `HERDR_ENV=1` + `HERDR_PANE_ID` injected into every pane (identity + workspace-scoping root).
 2. `pane list --workspace <ws>` returns only that workspace's panes (multi-workspace safety —
-   devloop never touches the global pane list).
+   drovr never touches the global pane list).
 3. Long text must be sent as discrete `pane send-text` + `pane send-keys <pid> Enter`
    (`pane run` bundles Enter into one request and leaves an unsubmitted paste pill).
 4. The submit key name is `Enter` — `send-keys Return` is a silent no-op.
@@ -48,17 +48,16 @@ Full inventory of every herdr call site: `docs/herdr-touchpoints.md`.
 The repo **is** the install — no build step. Claude Code loads it as a user-scope skill:
 
 ```sh
-git clone https://github.com/edbienes/drovr ~/.claude/skills/devloop
-~/.claude/skills/devloop/test/run-tests.sh   # offline; stubs herdr — safe anywhere
+git clone https://github.com/edbienes/drovr ~/.claude/skills/drovr
+~/.claude/skills/drovr/test/run-tests.sh   # offline; stubs herdr — safe anywhere
 ```
 
-> Naming note: the skill, bus, and env prefix keep their historical `devloop` / `DL_*` names
-> (`~/.claude/skills/devloop`, `~/.devloop/`, `.devloop/config`) — drovr is the project name.
-> A compatible rename may come later; consumers won't be broken by it.
+> drovr was born as an internal harness called `devloop`; everything now uses the `drovr` name
+> (skill, `~/.drovr/` bus, `.drovr/config`). The `DL_*` env prefix stays — read it as **D**rovr **L**oop.
 
 ## Adopt in a consumer repo
 
-Commit a `.devloop/config` at the repo root — static single-line `KEY=value` assignments only
+Commit a `.drovr/config` at the repo root — static single-line `KEY=value` assignments only
 (it is sourced in a sandboxed empty-env subshell; only these keys are read back):
 
 | Key | Purpose | Default |
@@ -70,13 +69,13 @@ Commit a `.devloop/config` at the repo root — static single-line `KEY=value` a
 | `DL_PLAN_FIRST` | `1` = plan-only iter-0, human-approved plan gates iter-1 | off |
 | `DL_GROK_LENS` / `DL_TIER` | review-lens/tier tuning | built-in |
 
-Precedence: caller env (non-empty) > `.devloop/config` > built-in default. Optionally add
+Precedence: caller env (non-empty) > `.drovr/config` > built-in default. Optionally add
 repo policy-checker subagents under `.claude/agents/` and reference them from `DL_GATE_STEP`.
 
 Minimal example (Go repo):
 
 ```sh
-# .devloop/config
+# .drovr/config
 DL_GATE_STEP='from the worktree root run go vet ./..., then go test ./...; both must pass'
 DL_GATE_CONTRACT='`go vet ./...`; `go test ./...`.'
 ```
@@ -92,7 +91,7 @@ entirely from its own config — zero harness edits.
 ## Run
 
 Inside herdr, open a Claude Code pane at the consumer repo root (this becomes the
-orchestrator) and invoke the `devloop` skill with the task brief. The orchestrator provisions
+orchestrator) and invoke the `drovr` skill with the task brief. The orchestrator provisions
 the implementation/review panes, dispatches, gates, triages — and stops at triage; **merge is
 always yours**.
 
@@ -113,7 +112,7 @@ drovr coordinates **unsandboxed** coding agents. Be honest with yourself about w
 - **The merge is the security boundary.** Nothing drovr does mutates your main branch; the
   human merge gate is deliberate and non-negotiable. The orchestrator never `rm -rf`s —
   teardown archives by `mv`.
-- **`.devloop/config` is repo-committed shell** at the same trust level as `.githooks`: it is
+- **`.drovr/config` is repo-committed shell** at the same trust level as `.githooks`: it is
   sourced in a sandboxed empty-env subshell and only whitelisted `DL_*` keys are read back,
   but you should still review it in PRs like any executable file.
 - **Pane operations are workspace-scoped.** Every live pane resolution/send is scoped to the

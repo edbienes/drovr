@@ -1,4 +1,4 @@
-# .devloop/config — super-school-rs devloop policy (fixture copy; the real file lives in that repo).
+# .drovr/config — super-school-rs drovr policy (fixture copy; the real file lives in that repo).
 # Full-override gate: the generic rust profile (fmt+clippy) plus this repo's own oracles — the
 # ADR-0002 OpenAPI contract-of-record drift check and the five ADR-checker subagents. These strings
 # reproduce the pre-extraction built-in rust gate BYTE-FOR-BYTE (the backcompat guarantee).

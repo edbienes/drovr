@@ -6,8 +6,8 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-export DEVLOOP_BUS_ROOT="$TMP/bus"
-export DEVLOOP_REPO_SLUG="demo-repo"
+export DROVR_BUS_ROOT="$TMP/bus"
+export DROVR_REPO_SLUG="demo-repo"
 
 # bus_task_dir creates <root>/<slug>/<task>/reviews and echoes the dir
 d="$(bus_task_dir issue-91)"
