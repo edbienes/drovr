@@ -1,0 +1,1 @@
+Read {{BUSDIR}}/task.md for context. Run your /pressure-test skill as an adversarial reviewer of {{TARGET}} (git -C {{REPO_PATH}} diff {{WORKTREE_BASE}}...HEAD). Then write your COMPLETE findings, verbatim, to {{BUSDIR}}/reviews/grok.md using your file-write tool, making the exact final line END-OF-FILE with nothing after it. Then stop.

@@ -1,0 +1,38 @@
+# Impl task: {{TASK}}
+
+worktree:  {{WORKTREE_NAME}}   (you create it via EnterWorktree, fresh branch off {{WORKTREE_BASE}})
+repo:      {{REPO}}  ({{REPO_PATH}})
+bus:       {{BUSDIR}}
+
+## Brief
+Read brief.txt in this bus dir for what to implement. It is context + goal + constraints — your
+method, design, and depth are your own (brief, not script). Commit your work in this worktree
+BEFORE you signal: reviewers and the gate read the committed diff `git diff {{WORKTREE_BASE}}...HEAD`.
+
+## Working discipline (non-negotiable — canonical: ~/.claude/skills/executing-hard-tasks/SKILL.md)
+Every claim you output is either VERIFIED (you ran it and watched it) or INFERRED (you reasoned
+it) — never report an inference as a verification. Scout the code paths you will touch before
+choosing an approach; probe the one unknown that could invalidate the plan first. Verify at the
+changed boundary with the realest harness available: schema → live DB; route/endpoint → running
+server; UI → rendered browser; anything registered/mounted/wired → invoke it via the entry point,
+never only the inner function (unit tests passing does not prove the feature is reachable).
+Prove every new test can fail: break the code, watch red, restore, watch green. In result.md's
+summary, label claims Verified (command + observed output) or Inferred, and list anything skipped —
+a skipped check is reported as skipped, never folded into done. Also name any Deviations: each
+point where you departed from the brief or plan, and why. A deviation that resolves a fact you
+could check yourself is yours to make and log; one that changes scope or contradicts the brief is
+the owner's call — stop, write it in result.md, and do not implement past it.
+
+## Output contracts (machine-parsed — exact shapes; nothing after the final END-OF-FILE)
+gate.md   → {{BUSDIR}}/iter-<n>/gate.md   (<n> = the iteration the trigger names)
+  one section per check: {{GATE_CONTRACT}}
+  last content line: GATE: PASS   (or GATE: FAIL if ANY check failed)
+  final line:        END-OF-FILE
+result.md → {{BUSDIR}}/iter-<n>/result.md
+  line 1: WORKTREE: <absolute worktree toplevel — git rev-parse --show-toplevel>
+  line 2: BRANCH: <the actual git branch — git rev-parse --abbrev-ref HEAD (EnterWorktree prefixes worktree-)>
+  then:   a short human summary of what you changed
+  final line: END-OF-FILE
+
+The orchestrator collects gate.md + result.md (sentinel-gated), runs an INDEPENDENT two-lens review on
+your worktree, triages, and decides whether to iterate. It never scrapes your pane. Merge is the human's.

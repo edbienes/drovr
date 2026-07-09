@@ -1,0 +1,1 @@
+Read {{BUSDIR}}/task.md for context, then run /code-review {{BRANCH}}, worktree is at {{REPO_PATH}} (review its committed diff vs {{WORKTREE_BASE}} fresh, even if a previous round reached the same conclusions). Write your complete findings verbatim to {{ITERDIR}}/reviews/claude.md, with the exact final line END-OF-FILE and nothing after it, then stop.

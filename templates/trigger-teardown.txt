@@ -1,0 +1,1 @@
+You are done with {{TASK}}. The human has finished the merge decision (the marker approved.md is present). Clean up now: call your ExitWorktree tool with action remove to delete the {{WORKTREE_NAME}} worktree and its branch, then run this exact shell command to archive the bus — mkdir -p {{ARCHIVE_DIR}} && mv {{BUSDIR}} {{ARCHIVE_DIR}}/{{TASK}}-done — then stop.

@@ -1,0 +1,33 @@
+# Triage — {{TASK}}  ({{TARGET}})
+
+Lenses (two local model lenses — Claude + Grok, the full roster):
+  - claude-code-review pane → **Claude** (`/code-review high`) → reviews/claude.md
+  - grok-pressure-test → **Grok**  (`/pressure-test`)     → reviews/grok.md
+Inputs: {{BUSDIR}}/reviews/claude.md , {{BUSDIR}}/reviews/grok.md
+
+## Method
+Weight each finding by (a) mechanism strength — is the failure mechanism concretely demonstrated,
+not just asserted? — and (b) cost-to-defer — what does it cost if we ship without fixing it?
+Do NOT rank by how many reviewers raised it. A single reviewer's deep, well-mechanism'd finding
+outranks a shallow finding both raised. (source label = which lens, NOT a vote weight.)
+
+## Blockers (fix before merge — strong mechanism AND high cost-to-defer)
+- [ ] {{finding}}  — source: {claude|grok}; mechanism: …; cost-to-defer: …
+
+## Fold-now (cheap, fix in this change — low cost, clearly correct)
+- [ ] {{finding}} — source: …
+
+## Defer (file a follow-up — real but low cost-to-defer or out of scope)
+- [ ] {{finding}} — source: …; why deferred: …
+
+## Single-reviewer depth findings (surfaced explicitly, NOT vote-filtered)
+- [ ] {{finding}} — only {claude|grok} caught it; why it still matters: …
+
+## Disagreements / reconciliations
+- {{where the two lenses conflicted, and the call made}}
+
+## Coverage note
+- {{if a lens stalled/was partial (e.g. empty-diff, reviewer error), say so — triage is over what landed}}
+
+## Verdict
+{ready-for-human-merge | needs-another-impl-iteration | escalate}

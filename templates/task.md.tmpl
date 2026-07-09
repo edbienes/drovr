@@ -1,0 +1,16 @@
+# Review task: {{TASK}}
+
+target:  {{TARGET}}
+repo:    {{REPO}}  ({{REPO_PATH}})
+branch:  {{BRANCH}}
+bus:     {{BUSDIR}}
+
+Two local lenses, reviewed independently (Claude + Grok — the full roster):
+  claude-code-review       → Claude lens (/code-review high) → {{BUSDIR}}/reviews/claude.md
+  grok-pressure-test  → Grok lens   (/pressure-test)    → {{BUSDIR}}/reviews/grok.md
+
+Output contract — the one hard requirement; everything else is your own reasoning,
+method, and depth (the orchestrator supplies the target, never the methodology):
+each reviewer writes its COMPLETE findings, verbatim, to its file above, with an
+exact final line of `END-OF-FILE` and nothing after it. The orchestrator collects
+these files (sentinel-gated) and triages them; it never scrapes your pane.
