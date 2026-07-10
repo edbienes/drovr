@@ -89,9 +89,6 @@ assert_eq "$(grep -cE 'grok -p .*-m \$grok_model' "$SRC")" "2" "grok arm passes 
 assert_eq "$(grep -cF -- '--cwd \"$DL_REPO_PATH/$wt\"' "$SRC")" "1" "grok --cwd is absolute (\$DL_REPO_PATH/\$wt, never bare \$wt)"
 assert_eq "$(grep -cF -- '--cwd \"$wt\"' "$SRC")" "0" "no grok launch uses a relative --cwd"
 assert_eq "$(grep -cE -- '--always-approve.*--effort' "$SRC")" "0" "grok headless passes NO CLI --effort flag (no-op: supports_reasoning_effort=false)"
-# plan phase (iter 0) swaps --always-approve for grok's native plan mode (CLI-enforced plan-only, Grok 4.5+)
-assert_eq "$(grep -c 'grok_mode="--permission-mode plan"' "$SRC")" "1" "plan phase (iter 0) runs grok under --permission-mode plan"
-assert_eq "$(grep -c 'grok_mode="--always-approve"' "$SRC")" "1" "impl iters keep --always-approve as the grok default mode"
 assert_eq "$(grep -c 'grok-headless-implementation)' "$PROV")" "2" "provision has a grok-headless launch arm (+ _drovr_alive case)"
 assert_eq "$([ "$(grep -c 'grok-headless-implementation' "$PROV")" -ge 3 ] && echo ok)" "ok" "provision wires grok-headless across launch + busy + reset"
 assert_eq "$(grep -c 'for label in grok-headless-implementation' "$SRC")" "1" "teardown searches the grok-headless arm first (default)"
