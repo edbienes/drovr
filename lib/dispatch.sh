@@ -377,14 +377,17 @@ drovr_dispatch_impl() {
       # tool exec (global permission_mode=always-approve too); NO pretrust step needed — verified 2026-06-23 that
       # --always-approve proceeds in an untrusted worktree path (with .mcp.json present) without a trust prompt,
       # unlike forge. iter 1 points grok at the worktree via --cwd; iter>=2 the shell already cd'd into it.
-      # Plan phase (iter 0) sends the plain plan prompt — /implement is the WRONG skill for planning.
-      local grok_lead="/implement --effort 3 "
-      [ "$iter" -le 0 ] && grok_lead=""
-      exec_cmd="$envscrub grok -p \"$grok_lead\$(cat '$pf')\" -m $grok_model --always-approve"
+      # Plan phase (iter 0) sends the plain plan prompt — /implement is the WRONG skill for planning —
+      # and runs under grok's native plan mode (`--permission-mode plan`, added upstream with Grok 4.5)
+      # instead of --always-approve, so plan-only is CLI-enforced, not just prompt discipline.
+      # Probe-verified 2026-07-10: plan mode still permits the file write that lands iter-0/plan.md on the bus.
+      local grok_lead="/implement --effort 3 " grok_mode="--always-approve"
+      [ "$iter" -le 0 ] && { grok_lead=""; grok_mode="--permission-mode plan"; }
+      exec_cmd="$envscrub grok -p \"$grok_lead\$(cat '$pf')\" -m $grok_model $grok_mode"
       # --cwd must be ABSOLUTE: the grok CLI errors "No such file or directory (os error 2)" on a
       # relative --cwd (bisected live 2026-07-09 on the cortex P2 run; same root cause as the
       # composer-fast --cwd bug noted earlier). $DL_REPO_PATH/$wt, never bare $wt.
-      [ "$fresh_wt" = 1 ] && exec_cmd="$envscrub grok -p \"$grok_lead\$(cat '$pf')\" -m $grok_model --always-approve --cwd \"$DL_REPO_PATH/$wt\""
+      [ "$fresh_wt" = 1 ] && exec_cmd="$envscrub grok -p \"$grok_lead\$(cat '$pf')\" -m $grok_model $grok_mode --cwd \"$DL_REPO_PATH/$wt\""
     else
       # forge (the only non-grok shell arm): headless single-shot via -p; prompt passed by flag; --agent forge
       # = the agent configured in ~/.forge/.forge.toml (the file is the only model/effort knob).
