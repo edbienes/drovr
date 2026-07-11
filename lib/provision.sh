@@ -185,7 +185,7 @@ _drovr_alive() {
       herdr pane read "$pid" --source visible 2>/dev/null \
         | grep -qE 'Shift\+Tab:mode|Ctrl\+\.:shortcuts|Ctrl\+c:cancel|Ctrl\+Enter:interject|⇣[0-9]|│ ❯|Grok Build +[0-9]'
       ;;
-    forge-implementation|grok-headless-implementation)
+    forge-implementation|grok-headless-implementation|grok-plan-tui)
       return 0 ;;
     *)
       local snap st
@@ -235,7 +235,9 @@ _drovr_launch_for() {
     grok-implementation)   printf '%s\n' "grok --always-approve --worktree=${DL_WORKTREE_NAME:-drovr-impl}" ;;
     # forge/grok-headless aren't resident agents — each pane is a plain shell. "Launch" just parks it at
     # the repo root; the actual headless exec (and its worktree) is dispatched per-iter by drovr_dispatch_impl.
-    forge-implementation|grok-headless-implementation)  printf '%s\n' "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\"" ;;
+    # grok-plan-tui parks the same way: drovr_dispatch_plan_tui sends the worktree + resident
+    # `grok --permission-mode plan` launch itself (DL_PLAN_TUI, 2026-07-11).
+    forge-implementation|grok-headless-implementation|grok-plan-tui)  printf '%s\n' "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\"" ;;
     *) return 1 ;;
   esac
 }
@@ -265,6 +267,15 @@ _drovr_reset() {
     return 0
   fi
   root="$(git rev-parse --show-toplevel 2>/dev/null || true)"; root="${root:-${DL_REPO_PATH:-$PWD}}"
+  if [ "$label" = grok-plan-tui ]; then
+    # plan-TUI pane: quit any resident grok session back to the shell, then park at repo root — the
+    # next dispatch_plan_tui sends the full worktree + plan-mode launch itself (no relaunch here).
+    # On a pane that is already a bare shell the /exit is a harmless zsh command-not-found.
+    drovr_send_slash "$id" '/exit' || return 3
+    sleep 4
+    drovr_send "$id" "cd \"$root\"" || return 3
+    return 0
+  fi
   if [ "$label" = forge-implementation ] || [ "$label" = grok-headless-implementation ]; then
     # forge/grok-headless panes are stateless shells — the prior task's worktree may already be torn down, so
     # just cd back to repo root (the per-iter dispatch re-creates/re-enters the worktree). No /exit, no relaunch.

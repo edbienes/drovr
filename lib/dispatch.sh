@@ -439,6 +439,56 @@ drovr_dispatch_plan() {
   drovr_dispatch_impl "$task" 0 "$brief"
 }
 
+# drovr_dispatch_plan_tui <task> "<brief>" : INTERACTIVE plan phase (DL_PLAN_TUI, 2026-07-11, maintainer
+# decision after the live issue-197 demo). Same bus contract as drovr_dispatch_plan — iter-0/plan.md +
+# the plan-approved.md fail-closed gates are unchanged, and dispatch_impl iter-1 reuses the worktree
+# exactly as after a headless plan — but the planner is a RESIDENT grok TUI in plan mode
+# (`grok --permission-mode plan`) on a dedicated grok-plan-tui pane: mode-level plan enforcement plus a
+# real approval UI. The orchestrator drives the keybar (send-text 'c'/'s'/'a', composer text + Enter) and
+# reads the FULL plan from the bus mirror the template contracts — the TUI viewport is unreadable at
+# length, and agent_status reads plain `idle` while the approval UI waits (both proven live 2026-07-11;
+# poll with drovr_plan_tui_state, never agent-status). Yolo-within-plan is auto-enabled by sending
+# "Ctrl+o" once the TUI is up — answering a permission prompt with "always approve" instead would EXIT
+# plan mode (proven live; same global override as the --always-approve flag). Approval flips the session
+# to always-approve: the template's no-implement clause covers that moment, and the orchestrator quits
+# the session (/exit) after capturing the final mirror. Tier rules + the full orchestrator runbook live
+# in SKILL.md. Headless (`grok -p`) plan mode remains broken upstream — it dies at the first interactive
+# approval prompt — which is exactly why this variant is TUI-resident.
+drovr_dispatch_plan_tui() {
+  local task="$1" brief="${2:-}"
+  _drovr_set_ctx_impl "$task" 0
+  [ -n "$brief" ] && printf '%s\n' "$brief" > "$DL_BUSDIR/brief.txt"
+  [ -f "$DL_BUSDIR/brief.txt" ] || { echo "dispatch_plan_tui: no brief (pass one, or pre-write brief.txt)" >&2; return 2; }
+  _fill "$_DROVR_TMPL/task-impl.md.tmpl" | bus_write "$task" task.md >/dev/null
+  status_set "$task" plan 0
+  local iid; iid="$(provision_role grok-plan-tui)" || { echo "dispatch_plan_tui: provision failed" >&2; return 1; }
+  _fill "$_DROVR_TMPL/prompt-impl-plan-tui.txt" > "$DL_ITERDIR/impl-prompt.txt"
+  local wt=".claude/worktrees/$DL_WORKTREE_NAME" pf="$DL_ITERDIR/impl-prompt.txt"
+  local _base="$DL_WORKTREE_BASE" _fetch; _fetch="$(_drovr_base_fetch "$DL_REPO_PATH" "$_base")"
+  drovr_send "$iid" "cd \"$DL_REPO_PATH\" && ${_fetch}git worktree add \"$wt\" -b \"worktree-$DL_WORKTREE_NAME\" \"$_base\" && cd \"$wt\" && env -u DATABASE_URL -u APP_DATABASE_URL grok --permission-mode plan \"\$(cat '$pf')\"" \
+    || { echo "dispatch_plan_tui: dispatch refused (workspace guard)" >&2; return 3; }
+  # yolo-within-plan: wait for the resident grok to report in, then ONE Ctrl+o (herdr key name is
+  # exactly "Ctrl+o" — C-o/ctrl-o/^O are rejected). Before grok is up the keypress would land in zsh
+  # (a harmless accept-line), so gate on settle first; fail-open like every settle.
+  _drovr_settle "$iid" 30000
+  herdr pane send-keys "$iid" "Ctrl+o" >/dev/null 2>&1 || true
+  echo "dispatched plan-tui (guarded): grok-plan-tui=$iid iter=0"
+}
+
+# drovr_plan_tui_state <task> : textual state of the plan-TUI pane. agent_status reads plain `idle`
+# while the approval UI waits (proven 2026-07-11), so state MUST come from the pane text. Echoes
+# APPROVAL (plan staged, keybar waiting) | WORKING | IDLE; rc=1 if no grok-plan-tui pane exists.
+drovr_plan_tui_state() {
+  local snap pid txt
+  snap="$(drovr_panes)"
+  pid="$(pane_id_for_label grok-plan-tui <<< "$snap" || true)"
+  [ -n "$pid" ] || return 1
+  txt="$(herdr pane read "$pid" --lines 25 2>/dev/null || true)"
+  if grep -q "Waiting on plan approval" <<< "$txt"; then echo APPROVAL
+  elif grep -qE "Thinking…|Responding…|Waiting for response" <<< "$txt"; then echo WORKING
+  else echo IDLE; fi
+}
+
 # drovr_dispatch_review_iter <task> <iter> <worktree_path> : worktree-targeted two-lens review of the
 # impl's committed branch, written into iter-<n>/reviews/. Each reviewer is handed its native skill plus
 # the worktree LOCATION ({{BRANCH}} + {{REPO_PATH}}): claude-code-review runs `/code-review {{BRANCH}}`,

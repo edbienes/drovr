@@ -89,7 +89,7 @@ assert_eq "$(grep -cE 'grok -p .*-m \$grok_model' "$SRC")" "2" "grok arm passes 
 assert_eq "$(grep -cF -- '--cwd \"$DL_REPO_PATH/$wt\"' "$SRC")" "1" "grok --cwd is absolute (\$DL_REPO_PATH/\$wt, never bare \$wt)"
 assert_eq "$(grep -cF -- '--cwd \"$wt\"' "$SRC")" "0" "no grok launch uses a relative --cwd"
 assert_eq "$(grep -cE -- '--always-approve.*--effort' "$SRC")" "0" "grok headless passes NO CLI --effort flag (no-op: supports_reasoning_effort=false)"
-assert_eq "$(grep -c 'grok-headless-implementation)' "$PROV")" "2" "provision has a grok-headless launch arm (+ _drovr_alive case)"
+assert_eq "$(grep -c 'grok-headless-implementation|grok-plan-tui)' "$PROV")" "2" "provision has a grok-headless launch arm (+ _drovr_alive case; group extended by grok-plan-tui 2026-07-11)"
 assert_eq "$([ "$(grep -c 'grok-headless-implementation' "$PROV")" -ge 3 ] && echo ok)" "ok" "provision wires grok-headless across launch + busy + reset"
 assert_eq "$(grep -c 'for label in grok-headless-implementation' "$SRC")" "1" "teardown searches the grok-headless arm first (default)"
 assert_contains "$(_drovr_launch_for grok-headless-implementation)" "cd " "grok-headless launch parks the shell at repo root (no resident agent)"
@@ -155,7 +155,7 @@ assert_contains "$plan_ctx" "do NOT" "iter-1-after-plan WORKTREE_STEP forbids re
 unset DL_WORKTREE_STEP DL_FEEDBACK_STEP DL_GATE_STEP DL_GATE_CONTRACT
 # 8f. source pins: the shell cmd builder keys worktree-add on plan-phase absence; grok plan phase drops /implement
 assert_eq "$([ "$(grep -c 'fresh_wt' "$SRC")" -ge 3 ] && echo ok)" "ok" "shell cmd builder routes worktree-add through a fresh_wt switch"
-assert_eq "$(grep -c 'status_set "$task" plan' "$SRC")" "1" "plan phase records status phase=plan"
+assert_eq "$(grep -c 'status_set "$task" plan' "$SRC")" "2" "both plan phases (headless iter-0 + plan-tui) record status phase=plan"
 
 # --- 9. target-guard (added 2026-07-07 per Ed, after the pace-b iter-3 ENOSPC): every shell-arm exec is
 #         prefixed with a fail-safe CARGO_TARGET_DIR volume check that prunes the debug tree between
@@ -261,5 +261,31 @@ _drovr_busy()  { return 0; }                        # …and picks up immediatel
 _drovr_fire "w0-9" claude-code-review "trigger text" 2>/dev/null; rc=$?
 assert_eq "$rc" "0" "_drovr_fire happy path unchanged (alive agent, instant pickup)"
 assert_eq "$sent" "1" "_drovr_fire delivered the prompt to the live pane"
+
+# --- 12. DL_PLAN_TUI (2026-07-11): interactive plan phase on a resident grok plan-mode TUI.
+#         Headless plan mode is broken upstream (`grok -p` dies at the first approval prompt —
+#         wired ff4e408, reverted a96a7f1); the TUI variant is the working plan-mode path. ---
+assert_eq "$(grep -c '^drovr_dispatch_plan_tui()' "$SRC")" "1" "drovr_dispatch_plan_tui is defined"
+assert_eq "$(grep -c '^drovr_plan_tui_state()' "$SRC")" "1" "drovr_plan_tui_state is defined"
+assert_eq "$(grep -cF 'env -u DATABASE_URL -u APP_DATABASE_URL grok --permission-mode plan' "$SRC")" "1" "plan-tui exec launches resident grok in plan mode (env-scrubbed)"
+assert_eq "$(grep -cE 'grok -p .*--permission-mode' "$SRC")" "0" "no headless grok -p arm carries --permission-mode (dies at first approval prompt)"
+# yolo-within-plan auto-enable: exact herdr key name "Ctrl+o" (C-o / ctrl-o / ^O are rejected);
+# answering a permission prompt "always approve" instead would EXIT plan mode entirely.
+assert_eq "$(grep -cF 'send-keys "$iid" "Ctrl+o"' "$SRC")" "1" "plan-tui sends yolo as the exact key name Ctrl+o"
+# approval-wait must be read from pane TEXT — agent_status shows plain `idle` there (proven live)
+assert_eq "$(grep -cF 'Waiting on plan approval' "$SRC")" "1" "plan_tui_state polls the approval keybar text, not agent_status"
+# provision knows the pane: shell-park launch + always-alive + a dedicated reset branch
+assert_contains "$(_drovr_launch_for grok-plan-tui)" "cd " "grok-plan-tui launch parks the shell at repo root"
+assert_eq "$([ "$(grep -c 'grok-plan-tui' "$PROV")" -ge 3 ] && echo ok)" "ok" "provision wires grok-plan-tui across launch + alive + reset"
+# template renders clean and carries the two load-bearing contracts (bus mirror + no-implement)
+_drovr_set_ctx_impl plantui-demo 0 >/dev/null
+ttrig="$(_fill "$_DROVR_TMPL/prompt-impl-plan-tui.txt")"
+assert_eq "$(printf '%s' "$ttrig" | grep -c '{{')" "0" "plan-tui prompt has no unsubstituted {{ }} slots"
+assert_contains "$ttrig" "plan.md" "plan-tui prompt carries the bus mirror contract"
+assert_contains "$ttrig" "END-OF-FILE" "plan-tui prompt requires the bus sentinel"
+assert_contains "$ttrig" "Do not begin implementing" "plan-tui prompt pins no-implement after approval"
+# fail-closed: refuses to dispatch without a brief, before any pane side-effect
+out="$(drovr_dispatch_plan_tui plantui-nobrief 2>&1)"; rc=$?
+assert_eq "$rc" "2" "dispatch_plan_tui refuses without a brief (rc=2)"
 
 assert_summary

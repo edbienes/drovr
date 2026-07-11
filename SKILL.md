@@ -148,10 +148,38 @@ UNAPPROVED plan refuses iter-1 regardless of the flag. SKIP the plan phase when 
 the decisions from a reviewed plan-of-record — the checkpoint is pure latency there. Shell arms only
 (forge default + grok-headless); resident TUI arms have no plan trigger.
 
+**Interactive plan phase — `DL_PLAN_TUI` / `drovr_dispatch_plan_tui` (2026-07-11).** Alternative plan
+phase on a RESIDENT grok TUI in plan mode — real mode-level plan enforcement plus grok's native
+approval UI, instead of the headless prompt-contract. (Headless `grok -p --permission-mode plan` is
+broken upstream: it dies at the first interactive approval prompt — wired `ff4e408`, reverted
+`a96a7f1`; this TUI variant is the working plan-mode path.) Same bus contract: the plan mirrors to
+`iter-0/plan.md`, `plan-approved.md` gates iter-1, and `drovr_dispatch_impl <task> 1` reuses the
+worktree unchanged. Orchestrator runbook:
+1. `drovr_dispatch_plan_tui <task> "<brief>"` — provisions a `grok-plan-tui` pane (shell-park label),
+   creates the task worktree, launches `grok --permission-mode plan "$(cat prompt)"` in it, and
+   auto-enables yolo-within-plan with ONE `Ctrl+o` (herdr key name is exactly `"Ctrl+o"`). NEVER answer
+   a permission prompt with "always approve" — that flips the whole session OUT of plan mode (the
+   interactive twin of the `--always-approve` flag override, proven live 2026-07-11).
+2. Poll `drovr_plan_tui_state <task>` for `APPROVAL` — the pane's `agent_status` reads plain `idle`
+   while the approval UI waits, so only the pane TEXT is trustworthy. The staged plan is mirrored to
+   `iter-0/plan.md` by prompt contract (the TUI viewport is unreadable at length); verify the mirror's
+   `END-OF-FILE` sentinel and mtime before triaging — a stale mirror means a revision wasn't flushed.
+3. Triage the mirror against brief + ADRs, then drive the keybar with plain sends: `send-text 'c'` opens
+   a line comment (type text, Enter saves; comments QUEUE), `send-text 's'` + Enter submits queued
+   comments as a request-changes round (grok revises on WARM context and re-stages — the TUI's main win
+   over headless), `send-text 'a'` approves (with any queued comments).
+4. Approval authority is TIERED (maintainer decision 2026-07-11): tier 1 (DEFAULT) — surface the triage
+   to the human and get their word before pressing `a`; tier 2 — for low-stakes slices (docs/tests/CI
+   only; nothing touching money, migrations, RLS, or auth) the orchestrator triages and approves
+   autonomously. When in doubt, tier 1.
+5. ⚠️ Approval flips the session to `always-approve` — live execution rights. The prompt template pins
+   "no implementation after approval", but do not linger: confirm the final mirror landed, `touch
+   plan-approved.md`, `/exit` the grok session (pane back to shell), then `drovr_dispatch_impl <task> 1`.
+
 Library additions (`. lib/dispatch.sh` / `. lib/bus.sh`):
 `bus_iter_dir`, `status_set`/`status_get`, `drovr_dispatch_impl`, `drovr_dispatch_plan`,
-`drovr_dispatch_review_iter`, `drovr_collect_iter`, `drovr_gate_verdict`,
-`drovr_dispatch_teardown`. Cap: `DROVR_ITER_CAP=3`.
+`drovr_dispatch_plan_tui`, `drovr_plan_tui_state`, `drovr_dispatch_review_iter`, `drovr_collect_iter`,
+`drovr_gate_verdict`, `drovr_dispatch_teardown`. Cap: `DROVR_ITER_CAP=3`.
 
 ### Run the implementation loop on task `<task>` with brief `<brief>`
 1. **Dispatch impl (iter 1):** `drovr_dispatch_impl <task> 1 "<brief>"` — writes `task.md`+`brief.txt`+
