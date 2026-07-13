@@ -43,7 +43,7 @@ _fill() {
 # (DL_TASK/DL_REPO*/DL_BUSDIR) or anything else in the orchestrator shell. Values must be single
 # physical lines (triggers are single-line; _fill sed also forbids `#`, `&`, `\` in gate text).
 # It is repo-committed shell at the same trust level as .githooks: static assignments only.
-_DROVR_CFG_VARS="DL_GATE_PROFILE DL_GATE_STEP DL_GATE_CONTRACT DL_WORKTREE_BASE DL_PLAN_FIRST DL_IMPL_AGENT DL_GROK_LENS DL_TIER"
+_DROVR_CFG_VARS="DL_GATE_PROFILE DL_GATE_STEP DL_GATE_CONTRACT DL_WORKTREE_BASE DL_PLAN_FIRST DL_IMPL_AGENT DL_GROK_LENS DL_TIER DL_PLAN_EFFORT DL_IMPL_EFFORT"
 _drovr_load_config() {
   local cfg="${DL_REPO_PATH:-}/.drovr/config" v val
   [ -n "${DL_REPO_PATH:-}" ] && [ -f "$cfg" ] || return 0
@@ -334,6 +334,16 @@ drovr_dispatch_impl() {
     claude) impl_label=claude-implementation; impl_trigger=trigger-impl.txt ;;
     *)      echo "dispatch_impl: unknown DL_IMPL_AGENT '$DL_IMPL_AGENT'" >&2; return 2 ;;
   esac
+  # Per-phase reasoning effort (DL_PLAN_EFFORT / DL_IMPL_EFFORT, 2026-07-13 maintainer decision: plan
+  # phases run the strongest effort, impl iters the cheap one). Only the forge arm consumes it (the toml
+  # is forge's only effort knob; grok arms have no reasoning-effort flag), but the value is validated
+  # here for every arm — fail CLOSED (rc=2) BEFORE provisioning, so a typo'd effort never half-dispatches.
+  local _eff _effvar
+  if [ "$iter" -le 0 ]; then _eff="${DL_PLAN_EFFORT:-}"; _effvar=DL_PLAN_EFFORT; else _eff="${DL_IMPL_EFFORT:-}"; _effvar=DL_IMPL_EFFORT; fi
+  case "$_eff" in
+    ""|low|medium|high|xhigh) ;;
+    *) echo "dispatch_impl: invalid $_effvar '$_eff' (low|medium|high|xhigh)" >&2; return 2 ;;
+  esac
   local iid
   if [ "$iter" -le 1 ]; then
     iid="$(provision_role "$impl_label")" || { echo "dispatch_impl: provision failed" >&2; return 1; }
@@ -393,6 +403,12 @@ drovr_dispatch_impl() {
       # re-prompts even with identical content) so the headless run never blocks on the Accept/Reject prompt;
       # forge-pretrust.sh fails-safe to the prompt if it can't seed. iter>=2 reuses the already-trusted worktree.
       local pretrust="bash \"$_DROVR_LIB/forge-pretrust.sh\" \"$DL_REPO_PATH/$wt\" \"$DL_REPO_PATH\""
+      # Per-phase effort pin ($_eff, validated fail-closed above): the toml is read once at forge
+      # process start, so the pin (forge-effort.sh sed) runs in the SAME pane line immediately before
+      # `forge` — atomic with the launch, no flip/revert bookkeeping, no cross-task race. Unset knob
+      # (the default) → toml untouched, byte-identical pre-2026-07-13 behavior. The helper itself
+      # fails OPEN (warn + run at the toml's current effort).
+      [ -n "$_eff" ] && pretrust="bash \"$_DROVR_LIB/forge-effort.sh\" \"$_eff\"; $pretrust"
       exec_cmd="$pretrust; $envscrub forge -p \"\$(cat '$pf')\" --agent forge"
       [ "$fresh_wt" = 1 ] && exec_cmd="$pretrust; $envscrub forge -p \"\$(cat '$pf')\" -C \"$wt\" --agent forge"
     fi

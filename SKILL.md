@@ -118,6 +118,16 @@ can't spawn the Claude ADR-checker subagents — those stay covered by the two-l
 `claude`/`grok` are resident-TUI fallbacks. Set `DL_IMPL_AGENT=grok-4.5` (or `composer-fast`/`claude`/`grok`)
 before `drovr_dispatch_impl` to override the forge default.
 
+**Per-phase forge effort — `DL_PLAN_EFFORT` / `DL_IMPL_EFFORT` (2026-07-13, maintainer decision: plan
+phases run the strongest reasoning, impl iters the cheap one — e.g. `DL_PLAN_EFFORT=xhigh` +
+`DL_IMPL_EFFORT=low`).** Forge-arm only (the toml is forge's only effort knob, read once at process
+start; grok arms have no reasoning-effort flag). The pin is `forge-effort.sh` sed'ing
+`~/.forge/.forge.toml` INSIDE the pane launch line immediately before `forge` — atomic with the
+launch, no orchestrator-side flip/revert bookkeeping, no cross-task race: every forge dispatch pins
+the effort its phase wants. Unset knobs (the default) leave the toml untouched — byte-identical
+pre-2026-07-13 behavior. Values `low|medium|high|xhigh`; an invalid value refuses the dispatch (rc=2)
+BEFORE provisioning; the helper itself fails open (warns and runs at the toml's current effort).
+
 **Gate profile — `DL_GATE_PROFILE`** = `rust` (DEFAULT) | `web` | `python`. Profiles are GENERIC
 (2026-07-09 extraction P1): `rust` = fmt+clippy, `web` = `pnpm -C web install --frozen-lockfile` +
 `pnpm -C web check` (tsc) + `pnpm -C web test` (vitest), `python` = ruff+mypy+pytest. Repo-specific
@@ -128,7 +138,7 @@ render-smoke a mechanical gate can't do stays an orchestrator step (step 5).
 **Per-repo policy — `<repo>/.drovr/config` (2026-07-09).** A repo declares its drovr policy in a
 shell-sourceable config read by `_drovr_set_ctx`: whitelisted vars only (`DL_GATE_PROFILE`,
 `DL_GATE_STEP`, `DL_GATE_CONTRACT`, `DL_WORKTREE_BASE`, `DL_PLAN_FIRST`, `DL_IMPL_AGENT`,
-`DL_GROK_LENS`, `DL_TIER`), sourced in a sandboxed empty-env subshell (it cannot clobber task identity
+`DL_GROK_LENS`, `DL_TIER`, `DL_PLAN_EFFORT`, `DL_IMPL_EFFORT`), sourced in a sandboxed empty-env subshell (it cannot clobber task identity
 or the orchestrator shell). Precedence: caller env (non-empty) > config > built-in default — a
 per-dispatch export always beats repo policy. Values must be single physical lines avoiding `#`, `&`,
 `\` (the `_fill` sed limits). `DL_WORKTREE_BASE` (default `origin/main`) sets what worktrees branch

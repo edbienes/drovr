@@ -288,4 +288,34 @@ assert_contains "$ttrig" "Do not begin implementing" "plan-tui prompt pins no-im
 out="$(drovr_dispatch_plan_tui plantui-nobrief 2>&1)"; rc=$?
 assert_eq "$rc" "2" "dispatch_plan_tui refuses without a brief (rc=2)"
 
+# --- 14. per-phase forge reasoning effort (DL_PLAN_EFFORT / DL_IMPL_EFFORT, 2026-07-13 maintainer
+#         decision: plan = strongest effort, impl = cheap). The pin is forge-effort.sh sed'ing
+#         ~/.forge/.forge.toml INSIDE the pane launch line (toml read once at forge start → atomic,
+#         no flip/revert bookkeeping). Unset knobs must leave dispatch byte-identical (backcompat). ---
+# config seam: both knobs are whitelisted for .drovr/config
+assert_contains "$_DROVR_CFG_VARS" "DL_PLAN_EFFORT" "DL_PLAN_EFFORT is config-whitelisted"
+assert_contains "$_DROVR_CFG_VARS" "DL_IMPL_EFFORT" "DL_IMPL_EFFORT is config-whitelisted"
+# the forge branch prepends the effort pin to the pretrust preamble (one wiring site)
+assert_eq "$(grep -cF 'forge-effort.sh\" \"$_eff\"' "$SRC")" "1" "forge branch pins effort via forge-effort.sh (one wiring site)"
+# validation is fail-closed BEFORE provisioning: a typo'd effort refuses the dispatch outright
+out="$(cd "$TMP" && DL_IMPL_AGENT=forge DL_IMPL_EFFORT=turbo drovr_dispatch_impl effp 2 2>&1)"; rc=$?
+assert_eq "$rc" "2" "dispatch_impl refuses an invalid DL_IMPL_EFFORT (rc=2)"
+assert_contains "$out" "DL_IMPL_EFFORT" "the refusal names the offending knob"
+out="$(cd "$TMP" && DL_IMPL_AGENT=forge DL_PLAN_EFFORT=turbo drovr_dispatch_plan effp2 "brief" 2>&1)"; rc=$?
+assert_eq "$rc" "2" "dispatch_plan refuses an invalid DL_PLAN_EFFORT (rc=2)"
+assert_contains "$out" "DL_PLAN_EFFORT" "the plan refusal names DL_PLAN_EFFORT"
+# forge-effort.sh behavior against a fixture toml (FORGE_TOML override)
+EFFTOML="$TMP/forge-fixture.toml"
+printf '[session]\nmodel_id = "claude-fable-5"\n\n[reasoning]\neffort = "low"\nenabled = true\n' > "$EFFTOML"
+FORGE_TOML="$EFFTOML" bash "$DIR/../lib/forge-effort.sh" xhigh
+assert_eq "$(grep -c 'effort = "xhigh"' "$EFFTOML")" "1" "forge-effort pins the effort line to xhigh"
+assert_eq "$(grep -c 'model_id = "claude-fable-5"' "$EFFTOML")" "1" "forge-effort leaves the model line untouched"
+FORGE_TOML="$EFFTOML" bash "$DIR/../lib/forge-effort.sh" low
+assert_eq "$(grep -c 'effort = "low"' "$EFFTOML")" "1" "forge-effort re-pins back to low (round-trip)"
+out="$(FORGE_TOML="$EFFTOML" bash "$DIR/../lib/forge-effort.sh" bogus 2>&1)"; rc=$?
+assert_eq "$rc" "0" "forge-effort fails OPEN on an unrecognized value (rc=0)"
+assert_eq "$(grep -c 'effort = "low"' "$EFFTOML")" "1" "forge-effort leaves the toml untouched on a bad value"
+out="$(FORGE_TOML="$TMP/absent.toml" bash "$DIR/../lib/forge-effort.sh" xhigh 2>&1)"; rc=$?
+assert_eq "$rc" "0" "forge-effort fails OPEN when the toml is absent (rc=0)"
+
 assert_summary
