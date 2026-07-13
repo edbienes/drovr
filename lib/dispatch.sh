@@ -364,8 +364,15 @@ drovr_dispatch_impl() {
     # ponytail: `git worktree add` fails if the dir/branch already exists (re-run of the same task) — tasks
     # are uniquely named, so this is a non-issue; if you re-run a task, rm the stale worktree first.
     # Template: iter 0 (plan phase) renders the PLAN-ONLY prompt; iters >=1 the implementation prompt.
+    # Forge plans on the MUSE agent (2026-07-14, maintainer decision after the live payments-polish A/B:
+    # plan quality matched forge's with mode-level read-only enforcement replacing the prompt contract),
+    # whose write path is its plan tool — so the forge plan phase gets its own prompt variant; the
+    # grok-headless plan phase keeps the direct-write template (grok CAN write the bus file itself).
     local ptmpl=prompt-impl-shell.txt
-    [ "$iter" -le 0 ] && ptmpl=prompt-impl-plan.txt
+    if [ "$iter" -le 0 ]; then
+      ptmpl=prompt-impl-plan.txt
+      [ -z "$grok_model" ] && ptmpl=prompt-impl-plan-muse.txt
+    fi
     _fill "$_DROVR_TMPL/$ptmpl" > "$DL_ITERDIR/impl-prompt.txt"
     local wt=".claude/worktrees/$DL_WORKTREE_NAME" cmd exec_cmd pf="$DL_ITERDIR/impl-prompt.txt"
     # fresh_wt: does THIS dispatch create the worktree? Plan phase (iter 0) and a plain iter-1 do;
@@ -409,8 +416,17 @@ drovr_dispatch_impl() {
       # (the default) → toml untouched, byte-identical pre-2026-07-13 behavior. The helper itself
       # fails OPEN (warn + run at the toml's current effort).
       [ -n "$_eff" ] && pretrust="bash \"$_DROVR_LIB/forge-effort.sh\" \"$_eff\"; $pretrust"
-      exec_cmd="$pretrust; $envscrub forge -p \"\$(cat '$pf')\" --agent forge"
-      [ "$fresh_wt" = 1 ] && exec_cmd="$pretrust; $envscrub forge -p \"\$(cat '$pf')\" -C \"$wt\" --agent forge"
+      # Agent per phase: impl iters run the full-tool `forge` agent; the plan phase (iter 0) runs
+      # `muse` — mode-enforced read-only (no write/patch/shell), so a wayward plan run CANNOT touch
+      # code even if the prompt contract fails. muse's only file output is its plan tool (saves
+      # under plans/ in the worktree, date-prefixed at the tool layer), so the plan phase appends
+      # muse-bridge.sh to the SAME pane line to mv that file onto the bus as iter-0/plan.md
+      # (+ sentinel guarantee). Bridge is fail-closed: no plan file -> nothing lands, poll resolves.
+      local fagent=forge
+      [ "$iter" -le 0 ] && fagent=muse
+      exec_cmd="$pretrust; $envscrub forge -p \"\$(cat '$pf')\" --agent $fagent"
+      [ "$fresh_wt" = 1 ] && exec_cmd="$pretrust; $envscrub forge -p \"\$(cat '$pf')\" -C \"$wt\" --agent $fagent"
+      [ "$iter" -le 0 ] && exec_cmd="$exec_cmd; bash \"$_DROVR_LIB/muse-bridge.sh\" \"$DL_REPO_PATH/$wt\" \"$DL_ITERDIR\""
     fi
     # ENOSPC guard (2026-07-07): prune the shared CARGO_TARGET_DIR's debug tree BETWEEN dispatches
     # when its volume runs low, instead of dying mid-gate. `;` not `&&` — the guard is fail-safe

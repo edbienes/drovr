@@ -97,7 +97,7 @@ assert_contains "$(_drovr_launch_for grok-headless-implementation)" "cd " "grok-
 # --- 6. forge is the only non-grok shell arm; codex is REMOVED ENTIRELY (per Ed 2026-07-07 — the roster is
 #         Claude + Grok only; forge runs Claude via ~/.forge/.forge.toml). Absence guards keep codex from
 #         creeping back; the shared shell-arm prompt (renamed prompt-impl-shell.txt) keeps its bus contract. ---
-assert_eq "$(grep -cE 'forge -p .*--agent forge' "$SRC")" "2" "forge arm still builds forge -p for both iters"
+assert_eq "$(grep -cE 'forge -p .*--agent \$fagent' "$SRC")" "2" "forge arm still builds forge -p for both iters (agent via \$fagent since muse, 2026-07-14)"
 assert_eq "$(grep -ci codex "$SRC")" "0" "dispatch.sh has no codex references (arm fully excised)"
 assert_eq "$(grep -ci codex "$PROV")" "0" "provision.sh has no codex references (arm fully excised)"
 assert_eq "$([ ! -f "$_DROVR_TMPL/prompt-impl-codex.txt" ] && echo ok)" "ok" "codex-named prompt template is gone (renamed prompt-impl-shell.txt)"
@@ -317,5 +317,56 @@ assert_eq "$rc" "0" "forge-effort fails OPEN on an unrecognized value (rc=0)"
 assert_eq "$(grep -c 'effort = "low"' "$EFFTOML")" "1" "forge-effort leaves the toml untouched on a bad value"
 out="$(FORGE_TOML="$TMP/absent.toml" bash "$DIR/../lib/forge-effort.sh" xhigh 2>&1)"; rc=$?
 assert_eq "$rc" "0" "forge-effort fails OPEN when the toml is absent (rc=0)"
+
+# --- 15. muse plan agent (2026-07-14, maintainer decision after the live payments-polish A/B): the forge
+#          arm's PLAN phase (iter 0) runs `--agent muse` — mode-enforced read-only (no write/patch/shell) —
+#          instead of the full-tool forge agent + prompt contract. muse's only file output is its plan
+#          tool (saves under plans/ in the worktree, filename date-prefixed AT THE TOOL LAYER — an explicit
+#          "no date prefix" instruction was overridden in the live probe), so the dispatch appends
+#          muse-bridge.sh to the same pane line: it mv's the untracked plans/*.md onto the bus as
+#          iter-0/plan.md and guarantees the END-OF-FILE sentinel. grok-headless plan phases are UNCHANGED
+#          (grok can write the bus file directly). ---
+# 15a. dispatch wiring: agent switches by phase; bridge rides only the plan phase; grok plan template kept
+assert_eq "$(grep -c 'fagent=muse' "$SRC")" "1" "forge plan phase (iter<=0) selects the muse agent"
+assert_eq "$(grep -c 'fagent=forge' "$SRC")" "1" "forge impl iters keep the forge agent"
+assert_eq "$(grep -cF 'muse-bridge.sh\" \"$DL_REPO_PATH' "$SRC")" "1" "plan-phase exec appends the muse bridge (one wiring site)"
+assert_eq "$(grep -c 'ptmpl=prompt-impl-plan-muse.txt' "$SRC")" "1" "forge plan phase renders the muse prompt variant"
+assert_eq "$(grep -c 'ptmpl=prompt-impl-plan.txt' "$SRC")" "1" "grok-headless plan phase keeps the direct-write plan prompt"
+# 15b. the muse plan prompt renders clean and carries the plan-tool contract (stem + date-prefix acceptance)
+export DL_TASK=musep DL_BUSDIR="$TMP/dispatch-test/musep" DL_ITERDIR="$TMP/dispatch-test/musep/iter-0"
+mtrig="$(_fill "$_DROVR_TMPL/prompt-impl-plan-muse.txt")"
+assert_eq "$(printf '%s' "$mtrig" | grep -c '{{')" "0" "muse plan prompt has no unsubstituted {{ }} slots"
+assert_contains "$mtrig" "plan tool" "muse plan prompt routes output through the plan tool"
+assert_contains "$mtrig" "musep-plan" "muse plan prompt pins the task-derived filename stem"
+assert_contains "$mtrig" "prefixes today's date" "muse plan prompt pre-accepts the tool's date prefix (no contradiction to burn thinking on)"
+assert_contains "$mtrig" "END-OF-FILE" "muse plan prompt pins the END-OF-FILE sentinel"
+assert_contains "$mtrig" "must not implement" "muse plan prompt states the read-only plan-only contract"
+assert_contains "$mtrig" "Decisions" "muse plan prompt leads with the tweakable-decisions section"
+# 15c. muse-bridge: picks the UNTRACKED plans/*.md (tracked repo plans never match), mv's it to the bus
+#      (worktree left clean), and appends the sentinel only when missing
+MB="$DIR/../lib/muse-bridge.sh"
+MWT="$TMP/muse-wt"; MITER="$TMP/muse-iter"
+mkdir -p "$MWT/plans" "$MITER"
+git -C "$MWT" init -q && git -C "$MWT" -c user.email=t@t -c user.name=t commit -q --allow-empty -m base
+printf 'tracked repo plan\n' > "$MWT/plans/2026-01-01-existing.md"
+git -C "$MWT" add plans && git -C "$MWT" -c user.email=t@t -c user.name=t commit -q -m plans
+printf 'the muse plan\nEND-OF-FILE\n' > "$MWT/plans/2026-07-14-musep-plan-v1.md"
+out="$(bash "$MB" "$MWT" "$MITER" 2>&1)"; rc=$?
+assert_eq "$rc" "0" "bridge exits 0 when the muse plan exists"
+assert_eq "$(cat "$MITER/plan.md" | head -1)" "the muse plan" "bridge delivers the muse plan to the bus iterdir"
+assert_eq "$(tail -1 "$MITER/plan.md")" "END-OF-FILE" "bridge keeps the sentinel (no double-append)"
+assert_eq "$(grep -c 'END-OF-FILE' "$MITER/plan.md")" "1" "sentinel appears exactly once when muse already wrote it"
+assert_eq "$([ ! -f "$MWT/plans/2026-07-14-musep-plan-v1.md" ] && echo moved)" "moved" "bridge mv's (not cp) — the plan cannot ride into an impl commit"
+assert_eq "$([ -f "$MWT/plans/2026-01-01-existing.md" ] && echo kept)" "kept" "tracked repo plans are untouched"
+# sentinel-missing case: a contract slip degrades to a late sentinel, not a poll hang
+printf 'plan without sentinel\n' > "$MWT/plans/2026-07-14-musep-plan-v2.md"
+bash "$MB" "$MWT" "$MITER" >/dev/null 2>&1
+assert_eq "$(tail -1 "$MITER/plan.md")" "END-OF-FILE" "bridge appends the sentinel when muse omitted it"
+# fail-closed case: no untracked plan -> nothing lands, rc=1
+rm -rf "$MITER"; mkdir -p "$MITER"
+out="$(bash "$MB" "$MWT" "$MITER" 2>&1)"; rc=$?
+assert_eq "$rc" "1" "bridge fails closed (rc=1) when muse produced no plan"
+assert_eq "$([ ! -f "$MITER/plan.md" ] && echo empty)" "empty" "bridge writes NOTHING on the no-plan path (poll resolves, no false-ready)"
+assert_contains "$out" "not delivered" "the no-plan failure names the condition"
 
 assert_summary
