@@ -461,12 +461,20 @@ drovr_dispatch_impl() {
 # REFUSES iter-1 (rc=5) while a plan exists unapproved, and — under DL_PLAN_FIRST=1 — while no plan exists.
 # Use when a slice has no plan-of-record or open high-impact decisions; skip when the brief already carries
 # the decisions (a reviewed plan-of-record) — the checkpoint would be pure latency there.
-# Shell arms only (forge default + grok-headless): resident TUI arms have no plan trigger wired.
+# FORGE ONLY (2026-07-14, maintainer decision): forge plans on the muse agent, which is mode-enforced
+# read-only, so the headless plan phase carries a real guarantee. Grok arms are REFUSED here: grok's own
+# plan mode cannot run headless (its interactive approval loop blocks at the first tool use and nothing
+# can answer — bisected 2026-07-11, wired ff4e408 / reverted a96a7f1), and a headless grok "plan" under
+# --always-approve would be a prompt contract with no mode enforcement — retired now that both real plan
+# paths (muse, TUI) have mode-level guarantees. Grok plan phases go through drovr_dispatch_plan_tui.
+# Resident TUI impl arms (claude / legacy grok) have no plan trigger wired either.
 drovr_dispatch_plan() {
   local task="$1" brief="${2:-}"
   case "${DL_IMPL_AGENT:-forge}" in
-    forge|composer-fast|grok-build|grok-4.5) ;;
-    *) echo "dispatch_plan: plan-first supports shell arms only (forge / grok-headless); DL_IMPL_AGENT='$DL_IMPL_AGENT'" >&2; return 2 ;;
+    forge) ;;
+    composer-fast|grok-build|grok-4.5)
+      echo "dispatch_plan: grok plan phases are TUI-only — headless grok plan mode dies at its first interactive approval (upstream), and prompt-contract-only planning is retired; use drovr_dispatch_plan_tui $task \"<brief>\"" >&2; return 2 ;;
+    *) echo "dispatch_plan: headless plan-first is forge-only (muse agent); DL_IMPL_AGENT='$DL_IMPL_AGENT'" >&2; return 2 ;;
   esac
   drovr_dispatch_impl "$task" 0 "$brief"
 }

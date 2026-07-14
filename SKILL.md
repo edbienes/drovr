@@ -156,8 +156,12 @@ the brief + ADRs, surface to the human; approval = `touch <bus>/<task>/plan-appr
 FEEDBACK_STEP) and reuses the plan phase's worktree (no second `git worktree add`). Fail-closed gates
 (rc=5): with `DL_PLAN_FIRST=1` exported, iter-1 refuses to dispatch until a plan exists; any existing
 UNAPPROVED plan refuses iter-1 regardless of the flag. SKIP the plan phase when the brief already carries
-the decisions from a reviewed plan-of-record — the checkpoint is pure latency there. Shell arms only
-(forge default + grok-headless); resident TUI arms have no plan trigger.
+the decisions from a reviewed plan-of-record — the checkpoint is pure latency there. **FORGE-ONLY
+(2026-07-14):** headless plan-first runs only on the forge arm; grok arms are REFUSED (rc=2, pointing at
+`drovr_dispatch_plan_tui`) — grok's plan mode cannot run headless (its interactive approval loop blocks
+at the first tool use with nothing to answer it; bisected 2026-07-11, `a96a7f1`), and a headless grok
+"plan" under `--always-approve` is a prompt contract with no mode enforcement, retired now that both
+real plan paths (muse, TUI) carry mode-level guarantees. Resident TUI arms have no plan trigger.
 **Forge plans on MUSE (2026-07-14, after the live payments-polish A/B — plan quality matched the forge
 agent's, so read-only won):** the forge arm's iter-0 runs `--agent muse`, forge's mode-enforced read-only
 plan agent (no write/patch/shell tools) — a wayward plan run cannot touch code even if the prompt
@@ -165,8 +169,8 @@ contract fails. muse cannot write the bus file either; its plan tool saves under
 and force-prefixes a date onto ANY requested filename (do not pin exact filenames in prompts — pin the
 `<task>-plan` stem; `prompt-impl-plan-muse.txt` pre-accepts the prefix). `lib/muse-bridge.sh`, appended to
 the same pane launch line, mv's the untracked `plans/*.md` onto the bus as `iter-0/plan.md` and guarantees
-the sentinel; fail-closed (no plan file → nothing lands, the poll resolves). grok-headless plan phases
-are unchanged (grok writes the bus file directly). muse reads the same toml, so `DL_PLAN_EFFORT` applies.
+the sentinel; fail-closed (no plan file → nothing lands, the poll resolves). muse reads the same toml, so
+`DL_PLAN_EFFORT` applies.
 
 **Interactive plan phase — `DL_PLAN_TUI` / `drovr_dispatch_plan_tui` (2026-07-11).** Alternative plan
 phase on a RESIDENT grok TUI in plan mode — real mode-level plan enforcement plus grok's native

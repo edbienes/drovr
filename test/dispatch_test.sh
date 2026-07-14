@@ -80,7 +80,14 @@ assert_eq "$(grep -c 'grok_model=grok-composer-2.5-fast' "$SRC")" "1" "composer-
 assert_eq "$(grep -c 'grok_model=grok-4.5' "$SRC")" "1" "grok-4.5 arm (and grok-build alias) select the grok-4.5 model"
 assert_eq "$(grep -c 'grok_model=grok-build' "$SRC")" "0" "no arm still selects the retired grok-build model"
 assert_eq "$(grep -cF 'grok-4.5|grok-build)' "$SRC")" "1" "grok-build is a backcompat alias for grok-4.5"
-assert_eq "$(grep -cF 'forge|composer-fast|grok-build|grok-4.5)' "$SRC")" "1" "dispatch_plan accepts the grok-4.5 arm"
+# dispatch_plan is FORGE-ONLY since 2026-07-14 (muse): grok arms are refused with a pointer at the TUI
+# plan phase — headless grok plan mode dies at its first interactive approval (upstream, a96a7f1), and
+# prompt-contract-only planning is retired now that both real plan paths have mode-level enforcement.
+out="$(DL_IMPL_AGENT=grok-4.5 drovr_dispatch_plan grokplan "brief" 2>&1)"; rc=$?
+assert_eq "$rc" "2" "dispatch_plan refuses the grok-4.5 arm (rc=2)"
+assert_contains "$out" "drovr_dispatch_plan_tui" "the grok refusal points at the TUI plan phase"
+out="$(DL_IMPL_AGENT=composer-fast drovr_dispatch_plan grokplan "brief" 2>&1)"; rc=$?
+assert_eq "$rc" "2" "dispatch_plan refuses the composer-fast arm (rc=2)"
 assert_eq "$(grep -c 'impl_label=grok-headless-implementation' "$SRC")" "2" "both headless grok arms share the grok-headless-implementation label"
 assert_eq "$(grep -c 'grok_lead="/implement --effort 3 "' "$SRC")" "1" "grok impl prompt LEADS with /implement --effort 3 (via grok_lead; plan phase empties it)"
 assert_eq "$(grep -cF 'grok -p \"$grok_lead' "$SRC")" "2" "both grok exec lines lead with \$grok_lead"
@@ -127,7 +134,7 @@ assert_eq "$(grep -c '^drovr_dispatch_plan()' "$SRC")" "1" "drovr_dispatch_plan 
 # 8a. resident arms (claude / legacy grok TUI) are unsupported for the plan phase
 out="$(cd "$TMP" && DL_IMPL_AGENT=claude drovr_dispatch_plan planp "brief" 2>&1)"; rc=$?
 assert_eq "$rc" "2" "dispatch_plan refuses resident arms (rc=2)"
-assert_contains "$out" "shell arms" "dispatch_plan names the shell-arms-only constraint"
+assert_contains "$out" "forge-only" "dispatch_plan names the forge-only (muse) constraint"
 # 8b. the plan prompt template renders clean and carries the plan.md contract
 export DL_TASK=planp DL_BUSDIR="$TMP/dispatch-test/planp" DL_ITERDIR="$TMP/dispatch-test/planp/iter-0"
 ptrig="$(_fill "$_DROVR_TMPL/prompt-impl-plan.txt")"
@@ -331,7 +338,7 @@ assert_eq "$(grep -c 'fagent=muse' "$SRC")" "1" "forge plan phase (iter<=0) sele
 assert_eq "$(grep -c 'fagent=forge' "$SRC")" "1" "forge impl iters keep the forge agent"
 assert_eq "$(grep -cF 'muse-bridge.sh\" \"$DL_REPO_PATH' "$SRC")" "1" "plan-phase exec appends the muse bridge (one wiring site)"
 assert_eq "$(grep -c 'ptmpl=prompt-impl-plan-muse.txt' "$SRC")" "1" "forge plan phase renders the muse prompt variant"
-assert_eq "$(grep -c 'ptmpl=prompt-impl-plan.txt' "$SRC")" "1" "grok-headless plan phase keeps the direct-write plan prompt"
+assert_eq "$(grep -c 'ptmpl=prompt-impl-plan.txt' "$SRC")" "1" "direct-write plan prompt kept as the non-forge default (defensive: a direct dispatch_impl-0 grok call must not render an IMPL prompt)"
 # 15b. the muse plan prompt renders clean and carries the plan-tool contract (stem + date-prefix acceptance)
 export DL_TASK=musep DL_BUSDIR="$TMP/dispatch-test/musep" DL_ITERDIR="$TMP/dispatch-test/musep/iter-0"
 mtrig="$(_fill "$_DROVR_TMPL/prompt-impl-plan-muse.txt")"
