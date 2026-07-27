@@ -335,9 +335,11 @@ drovr_dispatch_impl() {
     *)      echo "dispatch_impl: unknown DL_IMPL_AGENT '$DL_IMPL_AGENT'" >&2; return 2 ;;
   esac
   # Per-phase reasoning effort (DL_PLAN_EFFORT / DL_IMPL_EFFORT, 2026-07-13 maintainer decision: plan
-  # phases run the strongest effort, impl iters the cheap one). Only the forge arm consumes it (the toml
-  # is forge's only effort knob; grok arms have no reasoning-effort flag), but the value is validated
-  # here for every arm — fail CLOSED (rc=2) BEFORE provisioning, so a typo'd effort never half-dispatches.
+  # phases run the strongest effort, impl iters the cheap one). BOTH shell arms consume it now: forge via
+  # the toml pin (its only knob), grok via the `--reasoning-effort` CLI flag (wired 2026-07-27 — grok-4.5
+  # reports supports_reasoning_effort=true and the flag works headless AND in the TUI; see
+  # _drovr_grok_effort, which clamps xhigh to grok's `high` ceiling). The value is validated here for
+  # every arm — fail CLOSED (rc=2) BEFORE provisioning, so a typo'd effort never half-dispatches.
   local _eff _effvar
   if [ "$iter" -le 0 ]; then _eff="${DL_PLAN_EFFORT:-}"; _effvar=DL_PLAN_EFFORT; else _eff="${DL_IMPL_EFFORT:-}"; _effvar=DL_IMPL_EFFORT; fi
   case "$_eff" in
@@ -389,19 +391,20 @@ drovr_dispatch_impl() {
       # grok headless (composer-fast=DEFAULT | grok-build): one-shot `grok -p`, prompt by flag, model by -m.
       # The PROMPT LEADS with the `/implement` skill command (by convention): `/implement --effort 3 <brief>` — the brief
       # FOLLOWS the command, never mixed mid-prose. NB two different "effort"s: `/implement --effort 3` is the
-      # skill's REVIEWER COUNT (integer 1-5), NOT model reasoning effort. The CLI --effort flag is deliberately
-      # omitted (no-op: both models report supports_reasoning_effort=false). --always-approve auto-approves all
+      # skill's REVIEWER COUNT (integer 1-5), NOT model reasoning effort — which now rides the separate CLI
+      # `--reasoning-effort` flag ($grok_eff, from DL_IMPL_EFFORT/DL_PLAN_EFFORT). --always-approve auto-approves all
       # tool exec (global permission_mode=always-approve too); NO pretrust step needed — verified 2026-06-23 that
       # --always-approve proceeds in an untrusted worktree path (with .mcp.json present) without a trust prompt,
       # unlike forge. iter 1 points grok at the worktree via --cwd; iter>=2 the shell already cd'd into it.
       # Plan phase (iter 0) sends the plain plan prompt — /implement is the WRONG skill for planning.
       local grok_lead="/implement --effort 3 "
       [ "$iter" -le 0 ] && grok_lead=""
-      exec_cmd="$envscrub grok -p \"$grok_lead\$(cat '$pf')\" -m $grok_model --always-approve"
+      local grok_eff; grok_eff="$(_drovr_grok_effort "$_eff")"   # '' when unpinned -> grok's own default (high)
+      exec_cmd="$envscrub grok -p \"$grok_lead\$(cat '$pf')\" -m $grok_model --always-approve$grok_eff"
       # --cwd must be ABSOLUTE: the grok CLI errors "No such file or directory (os error 2)" on a
       # relative --cwd (bisected live 2026-07-09 on the cortex P2 run; same root cause as the
       # composer-fast --cwd bug noted earlier). $DL_REPO_PATH/$wt, never bare $wt.
-      [ "$fresh_wt" = 1 ] && exec_cmd="$envscrub grok -p \"$grok_lead\$(cat '$pf')\" -m $grok_model --always-approve --cwd \"$DL_REPO_PATH/$wt\""
+      [ "$fresh_wt" = 1 ] && exec_cmd="$envscrub grok -p \"$grok_lead\$(cat '$pf')\" -m $grok_model --always-approve$grok_eff --cwd \"$DL_REPO_PATH/$wt\""
     else
       # forge (the only non-grok shell arm): headless single-shot via -p; prompt passed by flag; --agent forge
       # = the agent configured in ~/.forge/.forge.toml (the file is the only model/effort knob).
@@ -499,13 +502,22 @@ drovr_dispatch_plan_tui() {
   _drovr_set_ctx_impl "$task" 0
   [ -n "$brief" ] && printf '%s\n' "$brief" > "$DL_BUSDIR/brief.txt"
   [ -f "$DL_BUSDIR/brief.txt" ] || { echo "dispatch_plan_tui: no brief (pass one, or pre-write brief.txt)" >&2; return 2; }
+  # Plan-phase reasoning effort, same fail-closed contract as dispatch_impl (rc=2 on a typo, BEFORE
+  # provisioning). The flag works in the TUI too (docs/user-guide/14-headless-mode.md), so the resident
+  # plan session honours DL_PLAN_EFFORT literally; xhigh clamps to grok's `high` ceiling.
+  local _peff="${DL_PLAN_EFFORT:-}" _pflag
+  case "$_peff" in
+    ""|low|medium|high|xhigh) ;;
+    *) echo "dispatch_plan_tui: invalid DL_PLAN_EFFORT '$_peff' (low|medium|high|xhigh)" >&2; return 2 ;;
+  esac
+  _pflag="$(_drovr_grok_effort "$_peff")"
   _fill "$_DROVR_TMPL/task-impl.md.tmpl" | bus_write "$task" task.md >/dev/null
   status_set "$task" plan 0
   local iid; iid="$(provision_role grok-plan-tui)" || { echo "dispatch_plan_tui: provision failed" >&2; return 1; }
   _fill "$_DROVR_TMPL/prompt-impl-plan-tui.txt" > "$DL_ITERDIR/impl-prompt.txt"
   local wt=".claude/worktrees/$DL_WORKTREE_NAME" pf="$DL_ITERDIR/impl-prompt.txt"
   local _base="$DL_WORKTREE_BASE" _fetch; _fetch="$(_drovr_base_fetch "$DL_REPO_PATH" "$_base")"
-  drovr_send "$iid" "cd \"$DL_REPO_PATH\" && ${_fetch}git worktree add \"$wt\" -b \"worktree-$DL_WORKTREE_NAME\" \"$_base\" && cd \"$wt\" && env -u DATABASE_URL -u APP_DATABASE_URL grok --permission-mode plan \"\$(cat '$pf')\"" \
+  drovr_send "$iid" "cd \"$DL_REPO_PATH\" && ${_fetch}git worktree add \"$wt\" -b \"worktree-$DL_WORKTREE_NAME\" \"$_base\" && cd \"$wt\" && env -u DATABASE_URL -u APP_DATABASE_URL grok --permission-mode plan$_pflag \"\$(cat '$pf')\"" \
     || { echo "dispatch_plan_tui: dispatch refused (workspace guard)" >&2; return 3; }
   # yolo-within-plan: wait for the resident grok to report in, then ONE Ctrl+o (herdr key name is
   # exactly "Ctrl+o" — C-o/ctrl-o/^O are rejected). Before grok is up the keypress would land in zsh

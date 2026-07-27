@@ -62,9 +62,10 @@ gtrig="$(_fill "$_DROVR_TMPL/trigger-impl-grok.txt")"
 assert_eq "$(printf '%s' "$gtrig" | grep -c '{{')" "0" "grok impl trigger has no unsubstituted {{ }} slots"
 assert_eq "$(printf '%s' "$gtrig" | wc -l | tr -d ' ')" "0" "grok impl trigger is a single physical line"
 assert_contains "$gtrig" "/implement --effort 3" "grok impl trigger runs /implement with an integer reviewer count"
-# grok-build has no configurable reasoning effort + --effort is headless-only (ignored in the TUI pane),
-# so the launch must NOT carry --effort. Guard against re-adding the no-op flag.
-assert_eq "$(_drovr_launch_for grok-implementation | grep -c -- '--effort')" "0" "grok-implementation launch carries no --effort (no-op for grok-build / headless-only)"
+# 2026-07-27: the launch now carries --reasoning-effort (grok-4.5 supports it; the flag works in the TUI
+# too). Unpinned = no flag at all, so grok keeps its own default (high) — the pre-wiring behaviour.
+assert_eq "$(DL_IMPL_EFFORT= _drovr_launch_for grok-implementation | grep -c -- '--reasoning-effort')" "0" "grok-implementation launch carries no effort flag when DL_IMPL_EFFORT is unset"
+assert_contains "$(DL_IMPL_EFFORT=medium _drovr_launch_for grok-implementation)" "--reasoning-effort medium" "grok-implementation launch honours DL_IMPL_EFFORT"
 assert_eq "$(grep -c 'impl_trigger=trigger-impl-grok.txt' "$SRC")" "1" "dispatch selects the grok trigger for DL_IMPL_AGENT=grok"
 assert_eq "$(grep -cE 'grok-implementation\)' "$DIR/../lib/provision.sh")" "2" "provision has a grok-implementation launch arm (+ _drovr_alive case)"
 
@@ -95,7 +96,7 @@ assert_eq "$(grep -cE 'grok -p .*-m \$grok_model' "$SRC")" "2" "grok arm passes 
 # the grok CLI errors (os error 2) on a RELATIVE --cwd — the flag must carry the absolute worktree path
 assert_eq "$(grep -cF -- '--cwd \"$DL_REPO_PATH/$wt\"' "$SRC")" "1" "grok --cwd is absolute (\$DL_REPO_PATH/\$wt, never bare \$wt)"
 assert_eq "$(grep -cF -- '--cwd \"$wt\"' "$SRC")" "0" "no grok launch uses a relative --cwd"
-assert_eq "$(grep -cE -- '--always-approve.*--effort' "$SRC")" "0" "grok headless passes NO CLI --effort flag (no-op: supports_reasoning_effort=false)"
+assert_eq "$(grep -cE -- '--always-approve\$grok_eff' "$SRC")" "2" "both grok headless exec lines carry the \$grok_eff reasoning-effort fragment"
 assert_eq "$(grep -c 'grok-headless-implementation|grok-plan-tui)' "$PROV")" "2" "provision has a grok-headless launch arm (+ _drovr_alive case; group extended by grok-plan-tui 2026-07-11)"
 assert_eq "$([ "$(grep -c 'grok-headless-implementation' "$PROV")" -ge 3 ] && echo ok)" "ok" "provision wires grok-headless across launch + busy + reset"
 assert_eq "$(grep -c 'for label in grok-headless-implementation' "$SRC")" "1" "teardown searches the grok-headless arm first (default)"
@@ -324,6 +325,23 @@ assert_eq "$rc" "0" "forge-effort fails OPEN on an unrecognized value (rc=0)"
 assert_eq "$(grep -c 'effort = "low"' "$EFFTOML")" "1" "forge-effort leaves the toml untouched on a bad value"
 out="$(FORGE_TOML="$TMP/absent.toml" bash "$DIR/../lib/forge-effort.sh" xhigh 2>&1)"; rc=$?
 assert_eq "$rc" "0" "forge-effort fails OPEN when the toml is absent (rc=0)"
+
+# --- 14b. GROK reasoning effort (wired 2026-07-27). Same two knobs, different mechanism: grok takes a
+#          `--reasoning-effort` CLI flag (works headless AND in the TUI). Grok's menu is low|medium|high,
+#          so xhigh CLAMPS to high rather than refusing — the shared tier-2 pin is not a typo, and typos
+#          are already refused upstream by the callers' fail-closed validation. ---
+assert_eq "$(_drovr_grok_effort "")" "" "unset effort yields no flag (grok keeps its own default, high)"
+assert_eq "$(_drovr_grok_effort medium)" " --reasoning-effort medium" "medium renders the flag fragment"
+assert_eq "$(_drovr_grok_effort high)" " --reasoning-effort high" "high renders the flag fragment"
+assert_eq "$(_drovr_grok_effort xhigh 2>/dev/null)" " --reasoning-effort high" "xhigh clamps to grok's high ceiling"
+assert_contains "$(_drovr_grok_effort xhigh 2>&1 >/dev/null)" "clamped" "the clamp is announced on stderr"
+# the grok review lens is pinned at peak reasoning by the launch contract (matrix: Grok lens = high)
+assert_contains "$(_drovr_launch_for grok-pressure-test)" "--reasoning-effort high" "grok reviewer launches at high"
+# plan-TUI honours DL_PLAN_EFFORT and fail-closes on a typo, same contract as dispatch_impl
+assert_eq "$(grep -cF 'grok --permission-mode plan$_pflag' "$SRC")" "1" "plan-TUI launch carries the effort fragment"
+out="$(cd "$TMP" && DL_PLAN_EFFORT=turbo drovr_dispatch_plan_tui efftui "brief" 2>&1)"; rc=$?
+assert_eq "$rc" "2" "dispatch_plan_tui refuses an invalid DL_PLAN_EFFORT (rc=2)"
+assert_contains "$out" "DL_PLAN_EFFORT" "the plan-TUI refusal names the offending knob"
 
 # --- 15. muse plan agent (2026-07-14, maintainer decision after the live payments-polish A/B): the forge
 #          arm's PLAN phase (iter 0) runs `--agent muse` — mode-enforced read-only (no write/patch/shell) —

@@ -211,14 +211,16 @@ _drovr_alive() {
 # Launch contracts per role (authoritative; maintainer decision 2026-06-15). Orchestrator (this pane) is never
 # (re)launched here. Reviewers run at peak reasoning; implementors run a notch lighter.
 #   - Claude reviewer:    --effort xhigh    Claude implementor:  --effort high
-#   - grok reviewer:      grok --always-approve (NO launch --effort — a no-op here; see implementor note)
-#   - grok implementor:   grok --always-approve (NO launch --effort, deliberately). Two independent reasons:
-#                         (1) grok-build does NOT support reasoning effort (models_cache.json:
-#                             supports_reasoning_effort=false — true for grok-build AND grok-composer-2.5-fast);
-#                         (2) --effort is a HEADLESS-only flag — ignored with a warning in the interactive
-#                             TUI a pane runs (docs/user-guide/14-headless-mode.md). The only depth knob is
-#                         the /implement skill's `--effort N` (reviewer COUNT 1-5, a skill arg that works in
-#                         the TUI), set in trigger-impl-grok.txt. Revisit if a reasoning-capable model lands.
+#   - grok reviewer:      grok --always-approve --reasoning-effort high  (peak reasoning, pinned)
+#   - grok implementor:   grok --always-approve --reasoning-effort <DL_IMPL_EFFORT>  (unset -> grok's own
+#                         default, `high`). WIRED 2026-07-27, reversing the earlier deliberate omission —
+#                         BOTH of its reasons expired: (1) the retired grok-build/composer models reported
+#                         supports_reasoning_effort=false, but grok-4.5 reports TRUE (models_cache.json,
+#                         menu low|medium|high, default high); (2) --effort was believed headless-only, but
+#                         docs/user-guide/14-headless-mode.md now lists --reasoning-effort/--effort as
+#                         working in BOTH the TUI and headless (only --tools/--disallowed-tools/--max-turns/
+#                         --agents are headless-only). The /implement skill's `--effort N` is a DIFFERENT
+#                         knob (reviewer COUNT 1-5, set in trigger-impl-grok.txt) and is unaffected.
 # Worktree START differs by agent:
 #   - Claude implementor: launch plain; the brief tells it to use the EnterWorktree TOOL at iter 1.
 #   - grok implementor:   the worktree is created by the `--worktree=<name>` LAUNCH flag (grok has no
@@ -227,12 +229,25 @@ _drovr_alive() {
 #                         relaunch-reset reuse path too. ASSUMES grok's flag is `--worktree=<name>` and
 #                         branches off the base/main — adjust this arm if your grok build differs.
 # Selection between claude-/grok-implementation is the caller's (drovr_dispatch_impl via DL_IMPL_AGENT).
+
+# _drovr_grok_effort <value> : the ` --reasoning-effort <level>` fragment for a grok launch/exec line,
+# or NOTHING when the value is empty (grok then uses its own default, `high`). Grok's menu tops out at
+# `high` — the CLI hard-refuses anything else ("unknown effort level; use one of: high, medium, low") —
+# so an `xhigh` pin CLAMPS here rather than refusing the dispatch: xhigh is a legitimate forge value
+# carried by a shared tier-2 knob, not a typo, and every caller fail-closes on typos before reaching us.
+_drovr_grok_effort() {
+  local e="${1:-}"
+  [ -n "$e" ] || return 0
+  [ "$e" = xhigh ] && { e=high; echo "grok effort: xhigh clamped to high (grok's ceiling)" >&2; }
+  printf ' --reasoning-effort %s' "$e"
+}
+
 _drovr_launch_for() {
   case "$1" in
     claude-code-review)    printf '%s\n' 'claude --dangerously-skip-permissions --model opus --effort xhigh' ;;
-    grok-pressure-test)    printf '%s\n' 'grok --always-approve' ;;
+    grok-pressure-test)    printf '%s\n' 'grok --always-approve --reasoning-effort high' ;;
     claude-implementation) printf '%s\n' 'claude --dangerously-skip-permissions --model opus --effort high' ;;
-    grok-implementation)   printf '%s\n' "grok --always-approve --worktree=${DL_WORKTREE_NAME:-drovr-impl}" ;;
+    grok-implementation)   printf '%s\n' "grok --always-approve$(_drovr_grok_effort "${DL_IMPL_EFFORT:-}") --worktree=${DL_WORKTREE_NAME:-drovr-impl}" ;;
     # forge/grok-headless aren't resident agents — each pane is a plain shell. "Launch" just parks it at
     # the repo root; the actual headless exec (and its worktree) is dispatched per-iter by drovr_dispatch_impl.
     # grok-plan-tui parks the same way: drovr_dispatch_plan_tui sends the worktree + resident
