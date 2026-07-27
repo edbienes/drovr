@@ -343,6 +343,19 @@ out="$(cd "$TMP" && DL_PLAN_EFFORT=turbo drovr_dispatch_plan_tui efftui "brief" 
 assert_eq "$rc" "2" "dispatch_plan_tui refuses an invalid DL_PLAN_EFFORT (rc=2)"
 assert_contains "$out" "DL_PLAN_EFFORT" "the plan-TUI refusal names the offending knob"
 
+# --- 14c. iter>=2 feedback names the brief as possibly-changed (2026-07-27). Without this the arm
+#          reads an iteration as fix-only and silently ignores a brief carrying NEW scope when the
+#          prior triage listed nothing to fix — burned a live no-op iteration. ---
+_drovr_set_ctx_impl feedbrief 2 >/dev/null
+assert_contains "$DL_FEEDBACK_STEP" "gate.md" "iter>=2 feedback still points at the prior gate"
+assert_contains "$DL_FEEDBACK_STEP" "CHANGED" "iter>=2 feedback warns the brief may have changed"
+assert_contains "$DL_FEEDBACK_STEP" "BRIEF wins" "iter>=2 feedback pins brief-over-triage precedence"
+# DL_FEEDBACK_STEP is env-overridable (`:-`), so it persists across calls in one shell by design —
+# unset it before checking that iter 1 defaults to no feedback step.
+unset DL_FEEDBACK_STEP
+_drovr_set_ctx_impl feedbrief 1 >/dev/null
+assert_eq "$DL_FEEDBACK_STEP" "" "iter 1 carries no feedback step"
+
 # --- 15. muse plan agent (2026-07-14, maintainer decision after the live payments-polish A/B): the forge
 #          arm's PLAN phase (iter 0) runs `--agent muse` — mode-enforced read-only (no write/patch/shell) —
 #          instead of the full-tool forge agent + prompt contract. muse's only file output is its plan

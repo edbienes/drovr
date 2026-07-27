@@ -279,11 +279,16 @@ _drovr_set_ctx_impl() {
   else
     local prev; prev="$(bus_iter_dir "$1" "$(($2-1))")"
     export DL_WORKTREE_STEP="${DL_WORKTREE_STEP:-You are already in the $DL_WORKTREE_NAME worktree from the previous attempt — do NOT call EnterWorktree again. }"
-    export DL_FEEDBACK_STEP="${DL_FEEDBACK_STEP:-First read $prev/gate.md and $prev/triage.md and fix every FAIL and every blocker they list. }"
+    # The brief is re-read every iteration, and a caller CAN hand iter>=2 a new one (drovr_dispatch_impl
+    # overwrites brief.txt whenever a brief argument is passed). Say so explicitly: without this the arm
+    # treats an iteration as fix-only, and a brief carrying NEW scope is silently ignored when the prior
+    # triage listed nothing to fix — a live no-op iteration burned a slot that way (2026-07-27).
+    export DL_FEEDBACK_STEP="${DL_FEEDBACK_STEP:-First read $prev/gate.md and $prev/triage.md and fix every FAIL and every blocker they list. Note the brief may have CHANGED since the last iteration — if it now asks for work beyond those fixes, do that too, and if the brief and the prior triage disagree the BRIEF wins. }"
   fi
 }
 
-# drovr_dispatch_impl <task> <iter> [brief] : write task.md + brief.txt (iter 1 only) + status.md,
+# drovr_dispatch_impl <task> <iter> [brief] : write task.md + brief.txt (whenever a brief is passed —
+# iter>=2 accepts one too, and FEEDBACK_STEP tells the arm the brief may have changed) + status.md,
 # provision the impl pane, fire the iter-aware impl trigger (guarded). The brief is written RAW (never
 # sed'd — markdown '#' headers would break the '#'-delimited _fill); task.md only references brief.txt.
 drovr_dispatch_impl() {
