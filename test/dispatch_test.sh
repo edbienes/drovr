@@ -25,7 +25,7 @@ assert_contains "$out" "claude-code-review OK"      "collect_iter reports claude
 assert_contains "$out" "grok-pressure-test OK" "collect_iter reports grok-pressure-test OK"
 
 # --- 2. iteration review trigger re-anchors a warm pane ---
-export DL_TASK=demo DL_REPO=super-school-rs DL_REPO_PATH=/tmp/wt DL_WORKTREE_NAME=drovr-demo
+export DL_TASK=demo DL_REPO=demo-repo DL_REPO_PATH=/tmp/wt DL_WORKTREE_NAME=drovr-demo
 export DL_TARGET="branch drovr-demo vs main (worktree /tmp/wt), review round 2"
 export DL_ITERDIR="$TMP/dispatch-test/demo/iter-2" DL_BUSDIR="$TMP/dispatch-test/demo"
 trig="$(_fill "$_DROVR_TMPL/trigger-review-iter.txt")"
@@ -74,22 +74,21 @@ assert_eq "$(grep -cE 'grok-implementation\)' "$DIR/../lib/provision.sh")" "2" "
 #         `grok -p` shell line whose PROMPT LEADS with `/implement --effort 2` (the skill's reviewer COUNT, NOT
 #         the no-op CLI --effort flag), passing the model via -m. provision + teardown expose the shell arm. ---
 PROV="$DIR/../lib/provision.sh"
-assert_eq "$(grep -c 'DL_IMPL_AGENT:-forge' "$SRC")" "2" "dispatch defaults DL_IMPL_AGENT to forge (impl case + plan-phase arm guard)"
-assert_eq "$(grep -c 'grok_model=grok-composer-2.5-fast' "$SRC")" "1" "composer-fast arm selects the grok-composer-2.5-fast model"
-# upstream retired the grok-build MODEL in 2026-07 (grok-4.5 is the CLI default); grok-build stays a
-# backcompat ALIAS arm routing to grok-4.5 — `-m grok-build` would error against the live CLI.
-assert_eq "$(grep -c 'grok_model=grok-4.5' "$SRC")" "1" "grok-4.5 arm (and grok-build alias) select the grok-4.5 model"
+assert_eq "$(grep -c 'DL_IMPL_AGENT:-grok-4.6' "$SRC")" "1" "dispatch defaults DL_IMPL_AGENT to grok-4.6"
+assert_eq "$(grep -c 'grok_model=grok-composer-2.5-fast' "$SRC")" "0" "no arm selects composer-fast"
+assert_eq "$(grep -c 'grok_model=grok-4.6' "$SRC")" "1" "every grok headless name pins grok-4.6"
+assert_eq "$(grep -c 'grok_model=grok-4.5' "$SRC")" "0" "no arm still selects grok-4.5"
 assert_eq "$(grep -c 'grok_model=grok-build' "$SRC")" "0" "no arm still selects the retired grok-build model"
-assert_eq "$(grep -cF 'grok-4.5|grok-build)' "$SRC")" "1" "grok-build is a backcompat alias for grok-4.5"
-# dispatch_plan is FORGE-ONLY since 2026-07-14 (muse): grok arms are refused with a pointer at the TUI
-# plan phase — headless grok plan mode dies at its first interactive approval (upstream, a96a7f1), and
-# prompt-contract-only planning is retired now that both real plan paths have mode-level enforcement.
+assert_eq "$(grep -cF 'grok-4.6|grok-4.5|grok-build|composer-fast)' "$SRC")" "1" "stale grok names alias to the grok-4.6 arm"
+# dispatch_plan always refuses and points at the TUI plan phase.
 out="$(DL_IMPL_AGENT=grok-4.5 drovr_dispatch_plan grokplan "brief" 2>&1)"; rc=$?
 assert_eq "$rc" "2" "dispatch_plan refuses the grok-4.5 arm (rc=2)"
 assert_contains "$out" "drovr_dispatch_plan_tui" "the grok refusal points at the TUI plan phase"
+out="$(DL_IMPL_AGENT=grok-4.6 drovr_dispatch_plan grokplan "brief" 2>&1)"; rc=$?
+assert_eq "$rc" "2" "dispatch_plan refuses the grok-4.6 arm (rc=2)"
 out="$(DL_IMPL_AGENT=composer-fast drovr_dispatch_plan grokplan "brief" 2>&1)"; rc=$?
 assert_eq "$rc" "2" "dispatch_plan refuses the composer-fast arm (rc=2)"
-assert_eq "$(grep -c 'impl_label=grok-headless-implementation' "$SRC")" "2" "both headless grok arms share the grok-headless-implementation label"
+assert_eq "$(grep -c 'impl_label=grok-headless-implementation' "$SRC")" "1" "all grok headless names share one impl label"
 assert_eq "$(grep -c 'grok_lead="/implement --effort 3 "' "$SRC")" "1" "grok impl prompt LEADS with /implement --effort 3 (via grok_lead; plan phase empties it)"
 assert_eq "$(grep -cF 'grok -p \"$grok_lead' "$SRC")" "2" "both grok exec lines lead with \$grok_lead"
 assert_eq "$(grep -cE 'grok -p .*-m \$grok_model' "$SRC")" "2" "grok arm passes the model via -m for both iters"
@@ -102,10 +101,14 @@ assert_eq "$([ "$(grep -c 'grok-headless-implementation' "$PROV")" -ge 3 ] && ec
 assert_eq "$(grep -c 'for label in grok-headless-implementation' "$SRC")" "1" "teardown searches the grok-headless arm first (default)"
 assert_contains "$(_drovr_launch_for grok-headless-implementation)" "cd " "grok-headless launch parks the shell at repo root (no resident agent)"
 
-# --- 6. forge is the only non-grok shell arm; codex is REMOVED ENTIRELY (per Ed 2026-07-07 — the roster is
-#         Claude + Grok only; forge runs Claude via ~/.forge/.forge.toml). Absence guards keep codex from
-#         creeping back; the shared shell-arm prompt (renamed prompt-impl-shell.txt) keeps its bus contract. ---
-assert_eq "$(grep -cE 'forge -p .*--agent \$fagent' "$SRC")" "2" "forge arm still builds forge -p for both iters (agent via \$fagent since muse, 2026-07-14)"
+# --- 6. forge is REMOVED. Absence guards keep it and the old OpenAI CLI from creeping back. ---
+assert_eq "$(grep -cE 'forge -p' "$SRC")" "0" "dispatch.sh has no forge -p exec"
+assert_eq "$(grep -ci 'forge-implementation' "$SRC")" "0" "dispatch.sh has no forge-implementation label"
+assert_eq "$(grep -ci 'forge-implementation' "$PROV")" "0" "provision.sh has no forge-implementation label"
+assert_eq "$([ ! -f "$DIR/../lib/forge-effort.sh" ] && echo ok)" "ok" "forge-effort.sh is gone"
+assert_eq "$([ ! -f "$DIR/../lib/forge-pretrust.sh" ] && echo ok)" "ok" "forge-pretrust.sh is gone"
+assert_eq "$([ ! -f "$DIR/../lib/muse-bridge.sh" ] && echo ok)" "ok" "muse-bridge.sh is gone"
+assert_eq "$([ ! -f "$_DROVR_TMPL/prompt-impl-plan-muse.txt" ] && echo ok)" "ok" "muse plan template is gone"
 assert_eq "$(grep -ci codex "$SRC")" "0" "dispatch.sh has no codex references (arm fully excised)"
 assert_eq "$(grep -ci codex "$PROV")" "0" "provision.sh has no codex references (arm fully excised)"
 assert_eq "$([ ! -f "$_DROVR_TMPL/prompt-impl-codex.txt" ] && echo ok)" "ok" "codex-named prompt template is gone (renamed prompt-impl-shell.txt)"
@@ -134,8 +137,8 @@ assert_contains "$timpl" "Deviations" "discipline block requires naming brief/pl
 assert_eq "$(grep -c '^drovr_dispatch_plan()' "$SRC")" "1" "drovr_dispatch_plan is defined"
 # 8a. resident arms (claude / legacy grok TUI) are unsupported for the plan phase
 out="$(cd "$TMP" && DL_IMPL_AGENT=claude drovr_dispatch_plan planp "brief" 2>&1)"; rc=$?
-assert_eq "$rc" "2" "dispatch_plan refuses resident arms (rc=2)"
-assert_contains "$out" "forge-only" "dispatch_plan names the forge-only (muse) constraint"
+assert_eq "$rc" "2" "dispatch_plan refuses (rc=2)"
+assert_contains "$out" "drovr_dispatch_plan_tui" "dispatch_plan points at the TUI plan phase"
 # 8b. the plan prompt template renders clean and carries the plan.md contract
 export DL_TASK=planp DL_BUSDIR="$TMP/dispatch-test/planp" DL_ITERDIR="$TMP/dispatch-test/planp/iter-0"
 ptrig="$(_fill "$_DROVR_TMPL/prompt-impl-plan.txt")"
@@ -163,7 +166,7 @@ assert_contains "$plan_ctx" "do NOT" "iter-1-after-plan WORKTREE_STEP forbids re
 unset DL_WORKTREE_STEP DL_FEEDBACK_STEP DL_GATE_STEP DL_GATE_CONTRACT
 # 8f. source pins: the shell cmd builder keys worktree-add on plan-phase absence; grok plan phase drops /implement
 assert_eq "$([ "$(grep -c 'fresh_wt' "$SRC")" -ge 3 ] && echo ok)" "ok" "shell cmd builder routes worktree-add through a fresh_wt switch"
-assert_eq "$(grep -c 'status_set "$task" plan' "$SRC")" "2" "both plan phases (headless iter-0 + plan-tui) record status phase=plan"
+assert_eq "$(grep -c 'status_set "$task" plan' "$SRC")" "2" "impl iter-0 and plan-tui record status phase=plan"
 
 # --- 9. target-guard (added 2026-07-07 per Ed, after the pace-b iter-3 ENOSPC): every shell-arm exec is
 #         prefixed with a fail-safe CARGO_TARGET_DIR volume check that prunes the debug tree between
@@ -192,8 +195,8 @@ assert_contains "$out" "pruning" "guard announces the prune"
 #          <repo>/.drovr/config in a sandboxed empty-env subshell, whitelisted DL_* only, precedence
 #          env > config > default; gate profiles are GENERIC (rust=fmt+clippy, web, python) with repo
 #          specifics moved to each repo's config; DL_WORKTREE_BASE replaces the hardcoded origin/main;
-#          and the super-school-rs fixture reproduces the pre-extraction rust gate BYTE-FOR-BYTE
-#          (the backcompat guarantee). Placed before the section-7 stubs — stubs stay LAST. ---
+#          and the reference-rust fixture is a full-override rust gate golden.
+#          Placed before the section-7 stubs — stubs stay LAST. ---
 CFGREPO="$TMP/cfgrepo"
 git init -q "$CFGREPO" 2>/dev/null
 git -C "$CFGREPO" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init 2>/dev/null
@@ -235,23 +238,22 @@ assert_contains "$out" "branched off origin/develop" "config DL_WORKTREE_BASE re
 assert_eq "$(grep -c 'git worktree add .*origin/main' "$SRC")" "0" "shell cmd builder has no hardcoded origin/main base"
 assert_contains "$(grep 'git worktree add' "$SRC")" '$_base' "shell cmd builder branches off \$DL_WORKTREE_BASE"
 # 10f-2. _drovr_base_fetch: fetch prefix ONLY for a remote-qualified base — a slash-y LOCAL branch
-#        (feat/x) must not be misread as remote+branch (found by the cortex P2 run, 2026-07-09).
-assert_eq "$(_drovr_base_fetch "$CFGREPO" "feat/m8a-interactive-auth")" "" "slash-y local branch base gets NO fetch prefix (repo has no such remote)"
+#        (feat/x) must not be misread as remote+branch.
+assert_eq "$(_drovr_base_fetch "$CFGREPO" "feat/local-topic")" "" "slash-y local branch base gets NO fetch prefix (repo has no such remote)"
 assert_eq "$(_drovr_base_fetch "$CFGREPO" "main")" "" "local no-slash base gets no fetch prefix"
 git -C "$CFGREPO" remote add origin /nonexistent-remote 2>/dev/null
 assert_eq "$(_drovr_base_fetch "$CFGREPO" "origin/develop")" "git fetch -q origin develop && " "remote-qualified base gets the fetch prefix"
-assert_eq "$(_drovr_base_fetch "$CFGREPO" "feat/m8a-interactive-auth")" "" "slash-y local branch still no fetch even with a remote present"
-# 10g. GOLDEN byte-identity: the super-school-rs fixture reproduces the pre-extraction rust gate exactly.
-#      (The real file is <super-school-rs>/.drovr/config — keep the fixture a verbatim copy.)
-cp "$DIR/fixtures/super-school-rs.drovr-config" "$CFGREPO/.drovr/config"
+assert_eq "$(_drovr_base_fetch "$CFGREPO" "feat/local-topic")" "" "slash-y local branch still no fetch even with a remote present"
+# 10g. GOLDEN: the reference-rust fixture is a full-override rust gate.
+cp "$DIR/fixtures/reference-rust.drovr-config" "$CFGREPO/.drovr/config"
 GOLD_STEP='cargo fmt --check, then cargo clippy --all-targets -- -D warnings, then regenerate the OpenAPI spec with cargo run --quiet --bin dump_openapi > openapi.json and run git diff --exit-code -- openapi.json (ADR-0002 contract-of-record drift: FAIL if it reports a diff — the committed spec is stale; regenerate with just gen-client and commit openapi.json plus web/src/lib/client/), then spawn the five ADR-checker subagents migration-reviewer rls-tenant-checker hex-boundary-checker auth-port-checker adr-compliance-reviewer on the committed diff'
 GOLD_CONTRACT='`cargo fmt --check`; `cargo clippy --all-targets -- -D warnings`; OpenAPI contract-of-record drift (`cargo run --quiet --bin dump_openapi > openapi.json` then `git diff --exit-code -- openapi.json`, ADR-0002); and the five ADR-checker subagents (migration-reviewer, rls-tenant-checker, hex-boundary-checker, auth-port-checker, adr-compliance-reviewer) run on the committed diff.'
 out="$(unset DL_GATE_PROFILE DL_GATE_STEP DL_GATE_CONTRACT DL_WORKTREE_BASE DL_WORKTREE_STEP DL_FEEDBACK_STEP
        cd "$CFGREPO" && _drovr_set_ctx_impl cfg-gold 1 >/dev/null 2>&1; printf '%s' "$DL_GATE_STEP")"
-assert_eq "$out" "$GOLD_STEP" "super-school-rs config reproduces pre-extraction DL_GATE_STEP byte-for-byte"
+assert_eq "$out" "$GOLD_STEP" "reference-rust fixture DL_GATE_STEP matches golden"
 out="$(unset DL_GATE_PROFILE DL_GATE_STEP DL_GATE_CONTRACT DL_WORKTREE_BASE DL_WORKTREE_STEP DL_FEEDBACK_STEP
        cd "$CFGREPO" && _drovr_set_ctx_impl cfg-gold2 1 >/dev/null 2>&1; printf '%s' "$DL_GATE_CONTRACT")"
-assert_eq "$out" "$GOLD_CONTRACT" "super-school-rs config reproduces pre-extraction DL_GATE_CONTRACT byte-for-byte"
+assert_eq "$out" "$GOLD_CONTRACT" "reference-rust fixture DL_GATE_CONTRACT matches golden"
 
 # --- 7. dead-pane FAIL-CLOSED (added 2026-07-06, per Ed): _drovr_fire refuses to deliver a trigger to a
 #         pane with no live agent — a prompt typed into a bare shell was fired-and-forgotten TWICE live
@@ -275,7 +277,7 @@ assert_eq "$sent" "1" "_drovr_fire delivered the prompt to the live pane"
 #         wired ff4e408, reverted a96a7f1); the TUI variant is the working plan-mode path. ---
 assert_eq "$(grep -c '^drovr_dispatch_plan_tui()' "$SRC")" "1" "drovr_dispatch_plan_tui is defined"
 assert_eq "$(grep -c '^drovr_plan_tui_state()' "$SRC")" "1" "drovr_plan_tui_state is defined"
-assert_eq "$(grep -cF 'env -u DATABASE_URL -u APP_DATABASE_URL grok --permission-mode plan' "$SRC")" "1" "plan-tui exec launches resident grok in plan mode (env-scrubbed)"
+assert_eq "$(grep -cF 'env -u DATABASE_URL -u APP_DATABASE_URL grok -m grok-4.6 --permission-mode plan' "$SRC")" "1" "plan-tui exec launches resident grok-4.6 in plan mode (env-scrubbed)"
 assert_eq "$(grep -cE 'grok -p .*--permission-mode' "$SRC")" "0" "no headless grok -p arm carries --permission-mode (dies at first approval prompt)"
 # yolo-within-plan auto-enable: exact herdr key name "Ctrl+o" (C-o / ctrl-o / ^O are rejected);
 # answering a permission prompt "always approve" instead would EXIT plan mode entirely.
@@ -296,35 +298,15 @@ assert_contains "$ttrig" "Do not begin implementing" "plan-tui prompt pins no-im
 out="$(drovr_dispatch_plan_tui plantui-nobrief 2>&1)"; rc=$?
 assert_eq "$rc" "2" "dispatch_plan_tui refuses without a brief (rc=2)"
 
-# --- 14. per-phase forge reasoning effort (DL_PLAN_EFFORT / DL_IMPL_EFFORT, 2026-07-13 maintainer
-#         decision: plan = strongest effort, impl = cheap). The pin is forge-effort.sh sed'ing
-#         ~/.forge/.forge.toml INSIDE the pane launch line (toml read once at forge start → atomic,
-#         no flip/revert bookkeeping). Unset knobs must leave dispatch byte-identical (backcompat). ---
-# config seam: both knobs are whitelisted for .drovr/config
+# --- 14. per-phase reasoning effort (DL_PLAN_EFFORT / DL_IMPL_EFFORT). ---
 assert_contains "$_DROVR_CFG_VARS" "DL_PLAN_EFFORT" "DL_PLAN_EFFORT is config-whitelisted"
 assert_contains "$_DROVR_CFG_VARS" "DL_IMPL_EFFORT" "DL_IMPL_EFFORT is config-whitelisted"
-# the forge branch prepends the effort pin to the pretrust preamble (one wiring site)
-assert_eq "$(grep -cF 'forge-effort.sh\" \"$_eff\"' "$SRC")" "1" "forge branch pins effort via forge-effort.sh (one wiring site)"
-# validation is fail-closed BEFORE provisioning: a typo'd effort refuses the dispatch outright
-out="$(cd "$TMP" && DL_IMPL_AGENT=forge DL_IMPL_EFFORT=turbo drovr_dispatch_impl effp 2 2>&1)"; rc=$?
+out="$(cd "$TMP" && DL_IMPL_AGENT=grok-4.6 DL_IMPL_EFFORT=turbo drovr_dispatch_impl effp 2 2>&1)"; rc=$?
 assert_eq "$rc" "2" "dispatch_impl refuses an invalid DL_IMPL_EFFORT (rc=2)"
 assert_contains "$out" "DL_IMPL_EFFORT" "the refusal names the offending knob"
-out="$(cd "$TMP" && DL_IMPL_AGENT=forge DL_PLAN_EFFORT=turbo drovr_dispatch_plan effp2 "brief" 2>&1)"; rc=$?
-assert_eq "$rc" "2" "dispatch_plan refuses an invalid DL_PLAN_EFFORT (rc=2)"
-assert_contains "$out" "DL_PLAN_EFFORT" "the plan refusal names DL_PLAN_EFFORT"
-# forge-effort.sh behavior against a fixture toml (FORGE_TOML override)
-EFFTOML="$TMP/forge-fixture.toml"
-printf '[session]\nmodel_id = "claude-fable-5"\n\n[reasoning]\neffort = "low"\nenabled = true\n' > "$EFFTOML"
-FORGE_TOML="$EFFTOML" bash "$DIR/../lib/forge-effort.sh" xhigh
-assert_eq "$(grep -c 'effort = "xhigh"' "$EFFTOML")" "1" "forge-effort pins the effort line to xhigh"
-assert_eq "$(grep -c 'model_id = "claude-fable-5"' "$EFFTOML")" "1" "forge-effort leaves the model line untouched"
-FORGE_TOML="$EFFTOML" bash "$DIR/../lib/forge-effort.sh" low
-assert_eq "$(grep -c 'effort = "low"' "$EFFTOML")" "1" "forge-effort re-pins back to low (round-trip)"
-out="$(FORGE_TOML="$EFFTOML" bash "$DIR/../lib/forge-effort.sh" bogus 2>&1)"; rc=$?
-assert_eq "$rc" "0" "forge-effort fails OPEN on an unrecognized value (rc=0)"
-assert_eq "$(grep -c 'effort = "low"' "$EFFTOML")" "1" "forge-effort leaves the toml untouched on a bad value"
-out="$(FORGE_TOML="$TMP/absent.toml" bash "$DIR/../lib/forge-effort.sh" xhigh 2>&1)"; rc=$?
-assert_eq "$rc" "0" "forge-effort fails OPEN when the toml is absent (rc=0)"
+out="$(cd "$TMP" && DL_IMPL_AGENT=forge drovr_dispatch_impl gone 1 "brief" 2>&1)"; rc=$?
+assert_eq "$rc" "2" "dispatch_impl refuses the removed forge arm (rc=2)"
+assert_contains "$out" "forge is removed" "the refusal names forge as removed"
 
 # --- 14b. GROK reasoning effort (wired 2026-07-27). Same two knobs, different mechanism: grok takes a
 #          `--reasoning-effort` CLI flag (works headless AND in the TUI). Grok's menu is low|medium|high,
@@ -337,8 +319,10 @@ assert_eq "$(_drovr_grok_effort xhigh 2>/dev/null)" " --reasoning-effort high" "
 assert_contains "$(_drovr_grok_effort xhigh 2>&1 >/dev/null)" "clamped" "the clamp is announced on stderr"
 # the grok review lens is pinned at peak reasoning by the launch contract (matrix: Grok lens = high)
 assert_contains "$(_drovr_launch_for grok-pressure-test)" "--reasoning-effort high" "grok reviewer launches at high"
+assert_contains "$(_drovr_launch_for grok-pressure-test)" "-m grok-4.6" "grok reviewer pins grok-4.6"
+assert_contains "$(_drovr_launch_for grok-implementation)" "-m grok-4.6" "grok TUI impl pins grok-4.6"
 # plan-TUI honours DL_PLAN_EFFORT and fail-closes on a typo, same contract as dispatch_impl
-assert_eq "$(grep -cF 'grok --permission-mode plan$_pflag' "$SRC")" "1" "plan-TUI launch carries the effort fragment"
+assert_eq "$(grep -cF 'grok -m grok-4.6 --permission-mode plan$_pflag' "$SRC")" "1" "plan-TUI launch pins grok-4.6 and carries the effort fragment"
 out="$(cd "$TMP" && DL_PLAN_EFFORT=turbo drovr_dispatch_plan_tui efftui "brief" 2>&1)"; rc=$?
 assert_eq "$rc" "2" "dispatch_plan_tui refuses an invalid DL_PLAN_EFFORT (rc=2)"
 assert_contains "$out" "DL_PLAN_EFFORT" "the plan-TUI refusal names the offending knob"
@@ -356,55 +340,6 @@ unset DL_FEEDBACK_STEP
 _drovr_set_ctx_impl feedbrief 1 >/dev/null
 assert_eq "$DL_FEEDBACK_STEP" "" "iter 1 carries no feedback step"
 
-# --- 15. muse plan agent (2026-07-14, maintainer decision after the live payments-polish A/B): the forge
-#          arm's PLAN phase (iter 0) runs `--agent muse` — mode-enforced read-only (no write/patch/shell) —
-#          instead of the full-tool forge agent + prompt contract. muse's only file output is its plan
-#          tool (saves under plans/ in the worktree, filename date-prefixed AT THE TOOL LAYER — an explicit
-#          "no date prefix" instruction was overridden in the live probe), so the dispatch appends
-#          muse-bridge.sh to the same pane line: it mv's the untracked plans/*.md onto the bus as
-#          iter-0/plan.md and guarantees the END-OF-FILE sentinel. grok-headless plan phases are UNCHANGED
-#          (grok can write the bus file directly). ---
-# 15a. dispatch wiring: agent switches by phase; bridge rides only the plan phase; grok plan template kept
-assert_eq "$(grep -c 'fagent=muse' "$SRC")" "1" "forge plan phase (iter<=0) selects the muse agent"
-assert_eq "$(grep -c 'fagent=forge' "$SRC")" "1" "forge impl iters keep the forge agent"
-assert_eq "$(grep -cF 'muse-bridge.sh\" \"$DL_REPO_PATH' "$SRC")" "1" "plan-phase exec appends the muse bridge (one wiring site)"
-assert_eq "$(grep -c 'ptmpl=prompt-impl-plan-muse.txt' "$SRC")" "1" "forge plan phase renders the muse prompt variant"
-assert_eq "$(grep -c 'ptmpl=prompt-impl-plan.txt' "$SRC")" "1" "direct-write plan prompt kept as the non-forge default (defensive: a direct dispatch_impl-0 grok call must not render an IMPL prompt)"
-# 15b. the muse plan prompt renders clean and carries the plan-tool contract (stem + date-prefix acceptance)
-export DL_TASK=musep DL_BUSDIR="$TMP/dispatch-test/musep" DL_ITERDIR="$TMP/dispatch-test/musep/iter-0"
-mtrig="$(_fill "$_DROVR_TMPL/prompt-impl-plan-muse.txt")"
-assert_eq "$(printf '%s' "$mtrig" | grep -c '{{')" "0" "muse plan prompt has no unsubstituted {{ }} slots"
-assert_contains "$mtrig" "plan tool" "muse plan prompt routes output through the plan tool"
-assert_contains "$mtrig" "musep-plan" "muse plan prompt pins the task-derived filename stem"
-assert_contains "$mtrig" "prefixes today's date" "muse plan prompt pre-accepts the tool's date prefix (no contradiction to burn thinking on)"
-assert_contains "$mtrig" "END-OF-FILE" "muse plan prompt pins the END-OF-FILE sentinel"
-assert_contains "$mtrig" "must not implement" "muse plan prompt states the read-only plan-only contract"
-assert_contains "$mtrig" "Decisions" "muse plan prompt leads with the tweakable-decisions section"
-# 15c. muse-bridge: picks the UNTRACKED plans/*.md (tracked repo plans never match), mv's it to the bus
-#      (worktree left clean), and appends the sentinel only when missing
-MB="$DIR/../lib/muse-bridge.sh"
-MWT="$TMP/muse-wt"; MITER="$TMP/muse-iter"
-mkdir -p "$MWT/plans" "$MITER"
-git -C "$MWT" init -q && git -C "$MWT" -c user.email=t@t -c user.name=t commit -q --allow-empty -m base
-printf 'tracked repo plan\n' > "$MWT/plans/2026-01-01-existing.md"
-git -C "$MWT" add plans && git -C "$MWT" -c user.email=t@t -c user.name=t commit -q -m plans
-printf 'the muse plan\nEND-OF-FILE\n' > "$MWT/plans/2026-07-14-musep-plan-v1.md"
-out="$(bash "$MB" "$MWT" "$MITER" 2>&1)"; rc=$?
-assert_eq "$rc" "0" "bridge exits 0 when the muse plan exists"
-assert_eq "$(cat "$MITER/plan.md" | head -1)" "the muse plan" "bridge delivers the muse plan to the bus iterdir"
-assert_eq "$(tail -1 "$MITER/plan.md")" "END-OF-FILE" "bridge keeps the sentinel (no double-append)"
-assert_eq "$(grep -c 'END-OF-FILE' "$MITER/plan.md")" "1" "sentinel appears exactly once when muse already wrote it"
-assert_eq "$([ ! -f "$MWT/plans/2026-07-14-musep-plan-v1.md" ] && echo moved)" "moved" "bridge mv's (not cp) — the plan cannot ride into an impl commit"
-assert_eq "$([ -f "$MWT/plans/2026-01-01-existing.md" ] && echo kept)" "kept" "tracked repo plans are untouched"
-# sentinel-missing case: a contract slip degrades to a late sentinel, not a poll hang
-printf 'plan without sentinel\n' > "$MWT/plans/2026-07-14-musep-plan-v2.md"
-bash "$MB" "$MWT" "$MITER" >/dev/null 2>&1
-assert_eq "$(tail -1 "$MITER/plan.md")" "END-OF-FILE" "bridge appends the sentinel when muse omitted it"
-# fail-closed case: no untracked plan -> nothing lands, rc=1
-rm -rf "$MITER"; mkdir -p "$MITER"
-out="$(bash "$MB" "$MWT" "$MITER" 2>&1)"; rc=$?
-assert_eq "$rc" "1" "bridge fails closed (rc=1) when muse produced no plan"
-assert_eq "$([ ! -f "$MITER/plan.md" ] && echo empty)" "empty" "bridge writes NOTHING on the no-plan path (poll resolves, no false-ready)"
-assert_contains "$out" "not delivered" "the no-plan failure names the condition"
+assert_eq "$(grep -c 'ptmpl=prompt-impl-plan.txt' "$SRC")" "1" "direct-write plan prompt kept for grok-headless iter-0"
 
 assert_summary

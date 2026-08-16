@@ -1,15 +1,14 @@
 # herdr touchpoints — P3 inventory freeze (2026-07-09)
 
-P3 deliverable of the extraction spec. Posture for OSS v1: **herdr is a documented,
-version-bounded prerequisite** — no runner abstraction, no plugin packaging, no upstream
-feature dependency. Herdr I/O stays collocated but unabstracted; task completion stays on
-the filesystem bus. Full decision record: `docs/superpowers/specs/2026-06-25-grok-consult.md`
-lineage → maintainer consult 2026-07-09.
+Posture for OSS v1: **herdr is a documented, version-bounded prerequisite** — no runner
+abstraction, no upstream feature dependency. Herdr I/O stays collocated but unabstracted;
+task completion stays on the filesystem bus. (Claude/Grok marketplace packaging is
+distribution only; it does not absorb this host contract.)
 
 ## Live invocation inventory
 
 Every executable `herdr` call in the codebase. Verified 2026-07-09: **zero** herdr calls in
-`bus.sh`, `grok-review.sh`, `forge-pretrust.sh`, `target-guard.sh`, or any template; SKILL.md
+`bus.sh`, `grok-review.sh`, `target-guard.sh`, or any template; SKILL.md
 mentions are prose/safety rules only.
 
 | # | Site | Command | Purpose | Test coverage |
@@ -96,11 +95,11 @@ Upstream repro draft (worst status bug): `docs/upstream/grok-agent-status-false-
 - [x] Host-contract smoke (2026-07-09): isolated named session (`herdr --session dl-smoke
       server`, own socket/session dir — CLI targeted via `HERDR_SOCKET_PATH`), README install
       steps followed verbatim (clone → suite 150/150; caught + fixed a non-executable
-      run-tests.sh), consumer = cortex (`.drovr/config`: Go gate, grok-4.5 arm, slash-y
-      local base). Full cycle ran unattended: task `cortex-config-tests`, iter-1 gate PASS +
+      run-tests.sh), consumer = a Go repo (`.drovr/config`: Go gate, grok arm, slash-y
+      local base). Full cycle ran unattended: iter-1 gate PASS +
       2 real lens findings (gofmt drift, vacuous precedence assertion), iter-2 fixed both,
       gate PASS, both lenses re-reviewed, triage verdict **ready-for-human-merge**, loop
-      stopped at the human gate. Host: **herdr 0.7.3, protocol 16** — load-bearing
+      stopped at the human gate. Host then: **herdr 0.7.3, protocol 16** — load-bearing
       integrations = the 7-point contract above, now in README "Supported host". One new
       gotcha confirmed: a fresh workspace's root pane inherits the SERVER process cwd
       (workspace `--cwd` did not place the shell) — reset with cd + relaunch, same as splits.

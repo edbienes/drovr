@@ -17,8 +17,8 @@ worktree base, default implementation arm) comes from the consumer repo's `.drov
 ## Supported host
 
 drovr runs **inside herdr** — herdr is a documented, version-bounded prerequisite, not an
-abstraction target. Tested against **herdr 0.7.3** (protocol 16). The load-bearing host
-contract (what a herdr version bump can break):
+abstraction target. Floor: herdr ≥ **0.7.3**. Current verify host: **herdr 0.8.0** (protocol 19).
+The load-bearing host contract (what a herdr version bump can break):
 
 1. `HERDR_ENV=1` + `HERDR_PANE_ID` injected into every pane (identity + workspace-scoping root).
 2. `pane list --workspace <ws>` returns only that workspace's panes (multi-workspace safety —
@@ -38,9 +38,9 @@ Full inventory of every herdr call site: `docs/herdr-touchpoints.md`.
 ## Prerequisites
 
 - herdr ≥ 0.7.3, running (`herdr status server`)
-- [Claude Code](https://claude.com/claude-code) CLI, authenticated (orchestrator + review lens;
-  also the default implementation arm via forge)
-- Grok CLI (optional: `grok-pressure-test` review lens + grok implementation arms)
+- [Claude Code](https://claude.com/claude-code) and/or [Grok](https://grok.com) CLI — either can
+  be the orchestrator; Claude is the default review lens; impl default is grok-4.6
+- Grok CLI for `/pressure-test` and the `grok-4.6` impl arm (the only Grok model drovr launches)
 - bash ≥ 3.2, git ≥ 2.30
 
 ## Install
@@ -48,7 +48,7 @@ Full inventory of every herdr call site: `docs/herdr-touchpoints.md`.
 Prefer a **plugin install**. One `plugin update` refreshes the playbook (how to dispatch, gate,
 review, and when Sol via `cursor-agent` is allowed). It does **not** rewrite a consumer repo's
 cast (ADR-0006, ktor `orchestration.md`, py `agent-orchestration.md`). Those files still own
-*whether this project* uses a seat.
+*whether this project* uses a seat. A plugin update does not rewrite those files.
 
 **Grok**
 
@@ -93,7 +93,7 @@ Commit a `.drovr/config` at the repo root — static single-line `KEY=value` ass
 | `DL_GATE_PROFILE` | generic gate: `rust` (fmt+clippy), `web` (pnpm install+tsc+vitest), `python` (ruff+mypy+pytest) | `rust` |
 | `DL_GATE_STEP` / `DL_GATE_CONTRACT` | full gate override (repo oracles, policy agents); no `#`, `&`, `\` | profile default |
 | `DL_WORKTREE_BASE` | branch worktrees off this ref (`origin/main`, `feat/x`, …) | `origin/main` |
-| `DL_IMPL_AGENT` | implementation arm (`forge`, `grok-4.5`, `composer-fast`, `claude`) | `forge` |
+| `DL_IMPL_AGENT` | implementation arm (`grok-4.6`, `claude`, `grok`) | `grok-4.6` |
 | `DL_PLAN_FIRST` | `1` = plan-only iter-0, human-approved plan gates iter-1 | off |
 | `DL_GROK_LENS` / `DL_TIER` | review-lens/tier tuning | built-in |
 
@@ -118,7 +118,7 @@ entirely from its own config — zero harness edits.
 
 ## Run
 
-Inside herdr, open a Claude Code pane at the consumer repo root (this becomes the
+Inside herdr, open a Claude or Grok pane at the consumer repo root (this becomes the
 orchestrator) and invoke the `drovr` skill with the task brief. The orchestrator provisions
 the implementation/review panes, dispatches, gates, triages — and stops at triage; **merge is
 always yours**.
@@ -159,8 +159,8 @@ drovr coordinates **unsandboxed** coding agents. Be honest with yourself about w
 
 - `SKILL.md` — the orchestrator playbook (the skill itself), including the on-demand `cursor-agent` seat
 - `.claude-plugin/` / `.grok-plugin/` — marketplace + plugin manifests (same repo, both CLIs)
-- `docs/herdr-touchpoints.md` — host contract + P3 inventory
-- `docs/extraction-spec.md` — how this was extracted from its first consumer
+- `docs/herdr-touchpoints.md` — host contract + herdr call-site inventory
+- `docs/upstream/` — herdr Grok `agent_status` notes
 - `lib/` — bus, provisioning, dispatch; `test/` — offline suite
 
 ## License

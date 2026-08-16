@@ -6,16 +6,15 @@ when_to_use: "Reach for this on any non-trivial feature slice, vertical slice, o
 
 # drovr — review stage (orchestrator playbook)
 
-Precondition: you are the `claude-orchestrator` pane inside herdr. The bus is external:
+Precondition: you are the orchestrator pane inside herdr (Claude or Grok). The bus is external:
 `~/.drovr/<repo-slug>/<task>/` (absolute paths only). You never enter a worktree; you never
 `rm -rf` (your pane is deny-ruled — clean up with `mv` to `~/.drovr/<repo>/.archive/`).
 The MVP runs **two local model lenses** on the branch — Claude (claude-code-review, via `/code-review`)
 + Grok (grok-pressure-test, via `/pressure-test`). The **standing** roster is Claude + Grok (maintainer
 decision 2026-07-07). The old OpenAI-CLI impl arm stays gone; do not add it back. GPT-5.6 Sol is
 **on-demand only**, via `cursor-agent` (herdr `--kind cursor`) — see “On-demand cursor-agent seat”
-below. It is not a third dual-lens and not a `DL_IMPL_AGENT`. (forge — Claude via
-`~/.forge/.forge.toml` — is the default **implementation** arm, with grok-build/composer-fast/claude/grok
-as escalation/fallbacks — see DL_IMPL_AGENT below.) No PR is opened —
+below. It is not a third dual-lens and not a `DL_IMPL_AGENT`. Default impl is **grok-4.6**.
+Forge is removed. No PR is opened —
 Claude's PR-only built-in `/review` and its Phase-2/CI gate stay with the impl-loop build (§17).
 MVP target = **current branch vs main**.
 
@@ -37,8 +36,8 @@ Source from `$DROVR_HOME` (plugin root, or `~/.claude/skills/drovr` on the clone
 2. **Dispatch:** `drovr_dispatch_reviews <task>` — writes `task.md`, fires both **prose** triggers
    through `drovr_send`. claude-code-review runs `/code-review high` (review-only) and writes its findings
    to `reviews/claude.md`; grok runs `/pressure-test` and writes `reviews/grok.md`.
-3. **Poll (background, never foreground):** run the dual-ready poll below with `run_in_background: true`;
-   the harness re-invokes you on `BOTH-READY` or `DEADLINE`.
+3. **Poll (background, never foreground):** start the dual-ready poll below as a background
+   command. The harness re-invokes you on `BOTH-READY` or `DEADLINE`. See **After dispatch**.
 ```bash
 # Slug guard (load-bearing): a detached background shell loses the repo cwd; an unpinned _bus_slug
 # (git rev-parse) then collapses the path to ~/.drovr//… and the poll false-DEADLINEs while the
@@ -76,6 +75,25 @@ split a pane off the global `herdr pane list`. Every live resolution goes throug
 through `drovr_send` (refuses a cross-workspace target, return 3); new panes split from
 `drovr_self_pane_id`. A stray label match against a foreign room is how a `/review` leaked before.
 
+## After dispatch (sticky)
+
+You own the wait. Do not stop and ask the human if a pane is done, idle, or blocked.
+Do not wait on `herdr wait agent-status` / pane `done` for **completion** — that signal is
+the bus file sentinel only (`END-OF-FILE`). Herdr does not inject a prompt into this pane
+when another pane goes idle.
+
+Immediately after every dispatch (reviews, impl iter, review-iter, plan-tui mirror), start
+the matching bash poll as a **background** command, then yield.
+
+- **Grok Build:** `run_terminal_command` with `background: true` (same poll script). When
+  the poll exits, the harness notifies this conversation — that is the wake. Continue the
+  playbook (`BOTH-READY` → read files; `DEADLINE` → collect / give more time / escalate).
+- **Claude Code:** `run_in_background: true` on the same poll (same re-invoke contract).
+
+Never run the poll in the foreground. Never skip it. If you compacted or lost the poll,
+reconstruct from bus files (Resume below) and start a new background poll if work is
+still in flight.
+
 ## Live-orchestration gotchas
 - **Run live herdr orchestration under `bash -c`**, not the harness zsh — zsh intermittently aborts
   `$(cmd | shell_function)` with "failed to change group ID" (setpgrp/job-control under the harness).
@@ -106,34 +124,17 @@ human-merge-gate appended. **You stay on `main`, never enter a worktree, never `
 full-bypass implementation pane owns the worktree, the in-worktree gate, all git side-effects, and
 teardown. Per-iteration bus subdirs (`iter-<n>/`) prevent stale-file false-ready across attempts.
 
-**Implementor arm — `DL_IMPL_AGENT`** = `forge` (DEFAULT) | `grok-4.5` | `composer-fast` | `claude` | `grok` (`grok-build` = backcompat alias for `grok-4.5` — upstream retired the grok-build model 2026-07; grok-4.5 is the CLI default, Opus-4.8-class).
-**The old OpenAI-CLI impl arm is REMOVED** (maintainer decision 2026-07-07 — standing roster is Claude + Grok); any unknown `DL_IMPL_AGENT` value errors. Do not add `cursor` as an impl arm. Sol rides `cursor-agent` as an orchestrator-spawned on-demand seat (below), not this switch.
-All arms write the same `gate.md`+`result.md` bus
-contract, so review/triage/teardown are arm-agnostic. `forge` (the DEFAULT) is a headless shell arm via
-`forge -p … -C <wt> --agent forge` (impl iters; plan phases run `--agent muse` — see Plan-first) —
-model/effort come from `~/.forge/.forge.toml` (the toml is the only
-knob); a `forge-pretrust.sh` preamble pre-seeds the
-worktree's `.mcp.json` trust so the headless run never blocks on forge's interactive MCP-trust prompt.
-`grok-4.5` and `composer-fast` are the ESCALATION arms — HEADLESS grok one-shots
-`grok -p "/implement --effort 3 $(cat prompt)" -m <model> --always-approve` in a plain shell pane
-(self-provision their worktree off the repo's DL_WORKTREE_BASE; iter 1 adds `--cwd <wt>`), differing only by model
-(`grok-4.5` vs `grok-composer-2.5-fast`); the prompt LEADS with the `/implement` skill command (never
-mid-prose), and no MCP pre-trust step is needed.
-Every shell arm's gate is the mechanical checks + a self-review against `docs/decisions/` since a shell pane
-can't spawn the Claude ADR-checker subagents — those stay covered by the two-lens review + your triage.
-`claude`/`grok` are resident-TUI fallbacks. Set `DL_IMPL_AGENT=grok-4.5` (or `composer-fast`/`claude`/`grok`)
-before `drovr_dispatch_impl` to override the forge default.
+**Implementor arm — `DL_IMPL_AGENT`** = `grok-4.6` (DEFAULT) | `claude` | `grok`. The only Grok model is **grok-4.6**. Stale names `grok-4.5`, `grok-build`, and `composer-fast` still dispatch, but they pin `-m grok-4.6`. **Forge is removed.** Any unknown `DL_IMPL_AGENT` value errors. Do not add `cursor` as an impl arm. Sol rides `cursor-agent` as an on-demand seat (below), not this switch.
+All arms write the same `gate.md`+`result.md` bus contract. `grok-4.6` is a headless one-shot
+`grok -p "/implement --effort 3 $(cat prompt)" -m grok-4.6 --always-approve` in a plain shell pane
+(self-provision their worktree off the repo's DL_WORKTREE_BASE; iter 1 adds `--cwd <wt>`).
+The prompt LEADS with the `/implement` skill command (never mid-prose).
+`claude`/`grok` are resident-TUI arms. The Grok TUI also pins `-m grok-4.6`.
 
 **Per-phase effort — `DL_PLAN_EFFORT` / `DL_IMPL_EFFORT` (2026-07-13, maintainer decision: plan
 phases run the strongest reasoning, impl iters the cheap one — e.g. `DL_PLAN_EFFORT=xhigh` +
 `DL_IMPL_EFFORT=low`).** Values `low|medium|high|xhigh`; an invalid value refuses the dispatch (rc=2)
 BEFORE provisioning; unset knobs leave every arm at its own default.
-
-*Forge arm* — the toml is forge's only effort knob (read once at process start), so the pin is
-`forge-effort.sh` sed'ing `~/.forge/.forge.toml` INSIDE the pane launch line immediately before
-`forge` — atomic with the launch, no orchestrator-side flip/revert bookkeeping, no cross-task race.
-Unset leaves the toml untouched — byte-identical pre-2026-07-13 behavior. The helper fails open
-(warns and runs at the toml's current effort).
 
 *Grok arms* — a `--reasoning-effort` CLI flag on the launch/exec line (WIRED 2026-07-27; previously
 omitted as a no-op, both reasons now expired: grok-4.5 reports `supports_reasoning_effort=true`, and
@@ -161,37 +162,20 @@ per-dispatch export always beats repo policy. Values must be single physical lin
 off — both the EnterWorktree prose and the shell-arm `git worktree add`. No config file → built-in
 defaults, byte-identical to pre-extraction behavior (guarded by the dispatch-test goldens).
 
-**Plan-first — `DL_PLAN_FIRST` / `drovr_dispatch_plan` (2026-07-07).** For a slice with NO
-plan-of-record or with open high-impact decisions, run a plan phase before any code:
-`drovr_dispatch_plan <task> "<brief>"` dispatches the impl arm ONCE in plan-only mode (iter 0 — it
-creates the task worktree, reads brief + real code, writes `iter-0/plan.md` leading with the decisions a
-human may want to change, and STOPS; no code, no commits). Poll `iter-0/plan.md`, sanity-check it against
-the brief + ADRs, surface to the human; approval = `touch <bus>/<task>/plan-approved.md`; then
+**Plan-first — `DL_PLAN_FIRST` / `drovr_dispatch_plan_tui`.** For a slice with NO
+plan-of-record or with open high-impact decisions, run a plan phase before any code.
+`drovr_dispatch_plan` always refuses (rc=2) and points here — headless plan-first went with forge.
+`drovr_dispatch_plan_tui <task> "<brief>"` creates the task worktree, launches resident grok-4.6
+in plan mode, and mirrors `iter-0/plan.md`. Poll that file, sanity-check it against the brief + ADRs,
+surface to the human; approval = `touch <bus>/<task>/plan-approved.md`; then
 `drovr_dispatch_impl <task> 1` proceeds normally — it auto-binds the impl to the approved plan (via
-FEEDBACK_STEP) and reuses the plan phase's worktree (no second `git worktree add`). Fail-closed gates
+FEEDBACK_STEP) and reuses the plan phase's worktree. Fail-closed gates
 (rc=5): with `DL_PLAN_FIRST=1` exported, iter-1 refuses to dispatch until a plan exists; any existing
 UNAPPROVED plan refuses iter-1 regardless of the flag. SKIP the plan phase when the brief already carries
-the decisions from a reviewed plan-of-record — the checkpoint is pure latency there. **FORGE-ONLY
-(2026-07-14):** headless plan-first runs only on the forge arm; grok arms are REFUSED (rc=2, pointing at
-`drovr_dispatch_plan_tui`) — grok's plan mode cannot run headless (its interactive approval loop blocks
-at the first tool use with nothing to answer it; bisected 2026-07-11, `a96a7f1`), and a headless grok
-"plan" under `--always-approve` is a prompt contract with no mode enforcement, retired now that both
-real plan paths (muse, TUI) carry mode-level guarantees. Resident TUI arms have no plan trigger.
-**Forge plans on MUSE (2026-07-14, after the live payments-polish A/B — plan quality matched the forge
-agent's, so read-only won):** the forge arm's iter-0 runs `--agent muse`, forge's mode-enforced read-only
-plan agent (no write/patch/shell tools) — a wayward plan run cannot touch code even if the prompt
-contract fails. muse cannot write the bus file either; its plan tool saves under `plans/` in the worktree
-and force-prefixes a date onto ANY requested filename (do not pin exact filenames in prompts — pin the
-`<task>-plan` stem; `prompt-impl-plan-muse.txt` pre-accepts the prefix). `lib/muse-bridge.sh`, appended to
-the same pane launch line, mv's the untracked `plans/*.md` onto the bus as `iter-0/plan.md` and guarantees
-the sentinel; fail-closed (no plan file → nothing lands, the poll resolves). muse reads the same toml, so
-`DL_PLAN_EFFORT` applies.
+the decisions from a reviewed plan-of-record.
 
-**Interactive plan phase — `DL_PLAN_TUI` / `drovr_dispatch_plan_tui` (2026-07-11).** Alternative plan
-phase on a RESIDENT grok TUI in plan mode — real mode-level plan enforcement plus grok's native
-approval UI, instead of the headless prompt-contract. (Headless `grok -p --permission-mode plan` is
-broken upstream: it dies at the first interactive approval prompt — wired `ff4e408`, reverted
-`a96a7f1`; this TUI variant is the working plan-mode path.) Same bus contract: the plan mirrors to
+**Interactive plan phase — `DL_PLAN_TUI` / `drovr_dispatch_plan_tui`.** Resident grok-4.6 TUI in plan
+mode — real mode-level plan enforcement plus grok's native approval UI. Same bus contract: the plan mirrors to
 `iter-0/plan.md`, `plan-approved.md` gates iter-1, and `drovr_dispatch_impl <task> 1` reuses the
 worktree unchanged. Orchestrator runbook:
 1. `drovr_dispatch_plan_tui <task> "<brief>"` — provisions a `grok-plan-tui` pane (shell-park label),
@@ -224,7 +208,8 @@ Library additions (`. lib/dispatch.sh` / `. lib/bus.sh`):
 1. **Dispatch impl (iter 1):** `drovr_dispatch_impl <task> 1 "<brief>"` — writes `task.md`+`brief.txt`+
    `status.md(phase=impl,iter=1)`, provisions `claude-implementation`, fires the impl trigger (EnterWorktree
    → implement → commit → in-worktree gate → `iter-1/gate.md` + `iter-1/result.md`).
-2. **Poll (background, never foreground):** dual-ready on `iter-<n>/{result.md,gate.md}`. Pin
+2. **Poll (background, never foreground):** dual-ready on `iter-<n>/{result.md,gate.md}`.
+   Start it as a background command (see **After dispatch**). Pin
    `DROVR_REPO_SLUG` before sourcing `bus.sh`. Re-invokes on `BOTH-READY` / `DEADLINE`.
 ```bash
 export DROVR_REPO_SLUG="<repo-slug>"
@@ -245,8 +230,9 @@ echo "DEADLINE"; exit 2
    latency, not a stall; just wait. Later iterations reuse the warm `target/` and finish far inside it.
 3. **Read + route:** parse `WORKTREE:` from `iter-<n>/result.md` (the worktree abs path) and the verdict
    from `drovr_gate_verdict <task> <n>`.
-4. **Review (worktree-targeted):** `drovr_dispatch_review_iter <task> <n> <worktree-path>`; background the
-   dual-ready poll on `iter-<n>/reviews/{claude,grok}.md` (same poll shape as the review stage). On
+4. **Review (worktree-targeted):** `drovr_dispatch_review_iter <task> <n> <worktree-path>`; start the
+   dual-ready poll on `iter-<n>/reviews/{claude,grok}.md` as a background command (same poll shape
+   as the review stage; see **After dispatch**). On
    `DEADLINE`, resolve each reviewer from ONE `drovr_panes` snapshot: a `working` pane just needs more time
    (re-background the poll); a *resting* pane with a missing/incomplete review file gets a single guarded
    reprompt — re-fill its iteration trigger and `drovr_send` it (the iter-aware trigger re-anchors a warm

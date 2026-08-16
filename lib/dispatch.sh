@@ -8,9 +8,7 @@
 #     plugin slash command was submitted as `/clear` instead. Mid-prose submits cleanly. So claude-code-review
 #     is told to run `/code-review high` (model-invocable — no `disable-model-invocation`) and grok to
 #     run `/pressure-test`; both fire reliably from a prose instruction (proven live). The roster is
-#     Claude + Grok ONLY (maintainer decision 2026-07-07) — forge (Claude via ~/.forge/.forge.toml) is the default
-#     implementation arm, grok-build/composer-fast the escalation arms. See drovr_dispatch_impl /
-#     DL_IMPL_AGENT.
+#     Claude + Grok ONLY. Default impl is grok-4.6. See drovr_dispatch_impl / DL_IMPL_AGENT.
 #  2. Triggers are SINGLE-LINE. herdr send-text + Enter treats an embedded newline as a submit,
 #     so a multi-line trigger would fire half-typed. `$(_fill …)` strips the trailing newline;
 #     the template bodies must each be exactly one physical line.
@@ -20,7 +18,7 @@
 . "$(dirname "${BASH_SOURCE[0]}")/bus.sh"
 . "$(dirname "${BASH_SOURCE[0]}")/provision.sh"
 _DROVR_TMPL="$(dirname "${BASH_SOURCE[0]}")/../templates"
-_DROVR_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # abs lib dir (for pane-side helpers like forge-pretrust.sh)
+_DROVR_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # abs lib dir (for pane-side helpers)
 
 # _fill <template-file> : substitute {{VARS}} from DL_* env; echo result. `#` is the sed delimiter,
 # safe because no substituted value contains `#` (paths, branch names, the target string). A caller
@@ -317,34 +315,21 @@ drovr_dispatch_impl() {
   # pane must RETAIN its worktree + what it built (never clear mid-task, §15a) — resolve-and-fire WITHOUT
   # clearing. If the pane died mid-task we CANNOT recreate its worktree context → escalate, never silently
   # spawn a fresh pane that would (per the iter>=2 trigger) skip EnterWorktree and implement on main.
-  # Implementor agent is selectable: DL_IMPL_AGENT=forge (DEFAULT) | composer-fast | grok-build | claude | grok.
-  # The roster is Claude + Grok ONLY (the OpenAI arm was removed maintainer decision 2026-07-07 — an unknown value errors).
-  # composer-fast + grok-build are HEADLESS grok arms (one-shot `grok -p -m <model>`), differing only by model;
-  # forge is headless `forge -p` (the model behind it comes from ~/.forge/.forge.toml). All three are NOT
-  # resident agents — each pane is a plain shell that self-provisions its worktree via a `git worktree add`
-  # preamble. claude enters its worktree via the EnterWorktree TOOL (driven by a prose trigger); the legacy
-  # `grok` arm uses a resident TUI + --worktree flag. forge is the DEFAULT impl arm (maintainer decision 2026-07-06);
-  # grok-build / composer-fast are the ESCALATION arms.
-  # All arms write the SAME gate.md + result.md bus contract, so review / triage / teardown stay arm-agnostic.
-  # Shell-dispatched arms are discriminated below by an empty impl_trigger; the headless grok arms additionally
-  # set $grok_model (the -m value), which routes them to the grok branch of the shell dispatch.
+  # Implementor agent is selectable: DL_IMPL_AGENT=grok-4.6 (DEFAULT) | claude | grok.
+  # The roster is Claude + Grok ONLY. Forge is removed (2026-08-17). An unknown value errors.
+  # grok-4.6 is a headless one-shot `grok -p -m grok-4.6` in a plain shell that self-provisions
+  # its worktree via `git worktree add`. Stale names grok-4.5 / grok-build / composer-fast alias
+  # to grok-4.6. claude uses EnterWorktree; `grok` is the resident TUI + --worktree flag.
+  # All arms write the SAME gate.md + result.md bus contract.
   local impl_label impl_trigger grok_model=""
-  case "${DL_IMPL_AGENT:-forge}" in
-    forge)  impl_label=forge-implementation;  impl_trigger= ;;   # DEFAULT — shell-dispatched below
-    composer-fast) impl_label=grok-headless-implementation; impl_trigger=; grok_model=grok-composer-2.5-fast ;;
-    # grok-build is a BACKCOMPAT ALIAS: upstream retired the grok-build model in 2026-07 (grok models
-    # now lists grok-4.5 as the default; -m grok-build would error). Both names route to grok-4.5.
-    grok-4.5|grok-build) impl_label=grok-headless-implementation; impl_trigger=; grok_model=grok-4.5 ;;
-    grok)   impl_label=grok-implementation;   impl_trigger=trigger-impl-grok.txt ;;   # legacy resident-TUI arm
+  case "${DL_IMPL_AGENT:-grok-4.6}" in
+    grok-4.6|grok-4.5|grok-build|composer-fast) impl_label=grok-headless-implementation; impl_trigger=; grok_model=grok-4.6 ;;
+    grok)   impl_label=grok-implementation;   impl_trigger=trigger-impl-grok.txt ;;
     claude) impl_label=claude-implementation; impl_trigger=trigger-impl.txt ;;
-    *)      echo "dispatch_impl: unknown DL_IMPL_AGENT '$DL_IMPL_AGENT'" >&2; return 2 ;;
+    *)      echo "dispatch_impl: unknown DL_IMPL_AGENT '${DL_IMPL_AGENT:-}' (forge is removed; use grok-4.6|claude|grok)" >&2; return 2 ;;
   esac
-  # Per-phase reasoning effort (DL_PLAN_EFFORT / DL_IMPL_EFFORT, 2026-07-13 maintainer decision: plan
-  # phases run the strongest effort, impl iters the cheap one). BOTH shell arms consume it now: forge via
-  # the toml pin (its only knob), grok via the `--reasoning-effort` CLI flag (wired 2026-07-27 — grok-4.5
-  # reports supports_reasoning_effort=true and the flag works headless AND in the TUI; see
-  # _drovr_grok_effort, which clamps xhigh to grok's `high` ceiling). The value is validated here for
-  # every arm — fail CLOSED (rc=2) BEFORE provisioning, so a typo'd effort never half-dispatches.
+  # Per-phase reasoning effort (DL_PLAN_EFFORT / DL_IMPL_EFFORT). Grok uses `--reasoning-effort`
+  # (clamps xhigh to high). Fail CLOSED (rc=2) BEFORE provisioning.
   local _eff _effvar
   if [ "$iter" -le 0 ]; then _eff="${DL_PLAN_EFFORT:-}"; _effvar=DL_PLAN_EFFORT; else _eff="${DL_IMPL_EFFORT:-}"; _effvar=DL_IMPL_EFFORT; fi
   case "$_eff" in
@@ -361,81 +346,20 @@ drovr_dispatch_impl() {
   fi
 
   if [ -z "$impl_trigger" ]; then
-    # Shell-dispatched arms (forge=DEFAULT, grok-headless): render the exec PROMPT to the bus, then send ONE shell line
-    # to the (shell) pane. iter 1 self-provisions the worktree off origin/main; iter>=2 re-enters the SAME
-    # persistent worktree (no resume — the prompt's FEEDBACK_STEP points the agent at the prior iter's
-    # gate.md/triage.md to fix the diff cold, more robust than a "most-recent-session" assumption on a reused
-    # pane). Delivery uses drovr_send (bundled pane run): a shell has no bracketed-paste-pill, so the
-    # _drovr_fire/send_prompt path (a Claude-TUI workaround) does not apply. The pane shell evaluates
-    # $(cat …) — kept literal here.
-    # ponytail: `git worktree add` fails if the dir/branch already exists (re-run of the same task) — tasks
-    # are uniquely named, so this is a non-issue; if you re-run a task, rm the stale worktree first.
-    # Template: iter 0 (plan phase) renders the PLAN-ONLY prompt; iters >=1 the implementation prompt.
-    # Forge plans on the MUSE agent (2026-07-14, maintainer decision after the live payments-polish A/B:
-    # plan quality matched forge's with mode-level read-only enforcement replacing the prompt contract),
-    # whose write path is its plan tool — so the forge plan phase gets its own prompt variant; the
-    # grok-headless plan phase keeps the direct-write template (grok CAN write the bus file itself).
+    # Grok headless arm: render the exec PROMPT to the bus, then send ONE shell line to the
+    # (shell) pane. iter 1 self-provisions the worktree; iter>=2 re-enters the SAME worktree.
     local ptmpl=prompt-impl-shell.txt
-    if [ "$iter" -le 0 ]; then
-      ptmpl=prompt-impl-plan.txt
-      [ -z "$grok_model" ] && ptmpl=prompt-impl-plan-muse.txt
-    fi
+    [ "$iter" -le 0 ] && ptmpl=prompt-impl-plan.txt
     _fill "$_DROVR_TMPL/$ptmpl" > "$DL_ITERDIR/impl-prompt.txt"
     local wt=".claude/worktrees/$DL_WORKTREE_NAME" cmd exec_cmd pf="$DL_ITERDIR/impl-prompt.txt"
-    # fresh_wt: does THIS dispatch create the worktree? Plan phase (iter 0) and a plain iter-1 do;
-    # an iter-1 AFTER a plan phase reuses the plan phase's worktree (creating again would fail).
     local fresh_wt=0
     if [ "$iter" -le 0 ] || { [ "$iter" -le 1 ] && [ ! -f "$DL_BUSDIR/iter-0/plan.md" ]; }; then fresh_wt=1; fi
-    # DB-env scrub (2026-07-07 incident): the pane shell parks at repo root where direnv (.envrc) can export
-    # a PRODUCTION DATABASE_URL; `just test` inherits it and its guard only greps ':5432/' — a Supabase URL
-    # sails past, and a pace-b iter-2 cargo-test run seeded rows into prod that way. Strip both DB vars from
-    # every headless impl exec: the isolated test recipe (:5433) provides its own URLs, so impl arms never
-    # need ambient ones. Applies to forge AND the grok-headless arms (both run the gate's tests).
     local envscrub="env -u DATABASE_URL -u APP_DATABASE_URL"
-    if [ -n "$grok_model" ]; then
-      # grok headless (composer-fast=DEFAULT | grok-build): one-shot `grok -p`, prompt by flag, model by -m.
-      # The PROMPT LEADS with the `/implement` skill command (by convention): `/implement --effort 3 <brief>` — the brief
-      # FOLLOWS the command, never mixed mid-prose. NB two different "effort"s: `/implement --effort 3` is the
-      # skill's REVIEWER COUNT (integer 1-5), NOT model reasoning effort — which now rides the separate CLI
-      # `--reasoning-effort` flag ($grok_eff, from DL_IMPL_EFFORT/DL_PLAN_EFFORT). --always-approve auto-approves all
-      # tool exec (global permission_mode=always-approve too); NO pretrust step needed — verified 2026-06-23 that
-      # --always-approve proceeds in an untrusted worktree path (with .mcp.json present) without a trust prompt,
-      # unlike forge. iter 1 points grok at the worktree via --cwd; iter>=2 the shell already cd'd into it.
-      # Plan phase (iter 0) sends the plain plan prompt — /implement is the WRONG skill for planning.
-      local grok_lead="/implement --effort 3 "
-      [ "$iter" -le 0 ] && grok_lead=""
-      local grok_eff; grok_eff="$(_drovr_grok_effort "$_eff")"   # '' when unpinned -> grok's own default (high)
-      exec_cmd="$envscrub grok -p \"$grok_lead\$(cat '$pf')\" -m $grok_model --always-approve$grok_eff"
-      # --cwd must be ABSOLUTE: the grok CLI errors "No such file or directory (os error 2)" on a
-      # relative --cwd (bisected live 2026-07-09 on the cortex P2 run; same root cause as the
-      # composer-fast --cwd bug noted earlier). $DL_REPO_PATH/$wt, never bare $wt.
-      [ "$fresh_wt" = 1 ] && exec_cmd="$envscrub grok -p \"$grok_lead\$(cat '$pf')\" -m $grok_model --always-approve$grok_eff --cwd \"$DL_REPO_PATH/$wt\""
-    else
-      # forge (the only non-grok shell arm): headless single-shot via -p; prompt passed by flag; --agent forge
-      # = the agent configured in ~/.forge/.forge.toml (the file is the only model/effort knob).
-      # iter 1 sets the cwd with -C <wt>; iter>=2 the shell has already cd'd into the worktree.
-      # Pre-trust the worktree's .mcp.json first (forge keys MCP trust by PATH, so a fresh worktree path
-      # re-prompts even with identical content) so the headless run never blocks on the Accept/Reject prompt;
-      # forge-pretrust.sh fails-safe to the prompt if it can't seed. iter>=2 reuses the already-trusted worktree.
-      local pretrust="bash \"$_DROVR_LIB/forge-pretrust.sh\" \"$DL_REPO_PATH/$wt\" \"$DL_REPO_PATH\""
-      # Per-phase effort pin ($_eff, validated fail-closed above): the toml is read once at forge
-      # process start, so the pin (forge-effort.sh sed) runs in the SAME pane line immediately before
-      # `forge` — atomic with the launch, no flip/revert bookkeeping, no cross-task race. Unset knob
-      # (the default) → toml untouched, byte-identical pre-2026-07-13 behavior. The helper itself
-      # fails OPEN (warn + run at the toml's current effort).
-      [ -n "$_eff" ] && pretrust="bash \"$_DROVR_LIB/forge-effort.sh\" \"$_eff\"; $pretrust"
-      # Agent per phase: impl iters run the full-tool `forge` agent; the plan phase (iter 0) runs
-      # `muse` — mode-enforced read-only (no write/patch/shell), so a wayward plan run CANNOT touch
-      # code even if the prompt contract fails. muse's only file output is its plan tool (saves
-      # under plans/ in the worktree, date-prefixed at the tool layer), so the plan phase appends
-      # muse-bridge.sh to the SAME pane line to mv that file onto the bus as iter-0/plan.md
-      # (+ sentinel guarantee). Bridge is fail-closed: no plan file -> nothing lands, poll resolves.
-      local fagent=forge
-      [ "$iter" -le 0 ] && fagent=muse
-      exec_cmd="$pretrust; $envscrub forge -p \"\$(cat '$pf')\" --agent $fagent"
-      [ "$fresh_wt" = 1 ] && exec_cmd="$pretrust; $envscrub forge -p \"\$(cat '$pf')\" -C \"$wt\" --agent $fagent"
-      [ "$iter" -le 0 ] && exec_cmd="$exec_cmd; bash \"$_DROVR_LIB/muse-bridge.sh\" \"$DL_REPO_PATH/$wt\" \"$DL_ITERDIR\""
-    fi
+    local grok_lead="/implement --effort 3 "
+    [ "$iter" -le 0 ] && grok_lead=""
+    local grok_eff; grok_eff="$(_drovr_grok_effort "$_eff")"
+    exec_cmd="$envscrub grok -p \"$grok_lead\$(cat '$pf')\" -m $grok_model --always-approve$grok_eff"
+    [ "$fresh_wt" = 1 ] && exec_cmd="$envscrub grok -p \"$grok_lead\$(cat '$pf')\" -m $grok_model --always-approve$grok_eff --cwd \"$DL_REPO_PATH/$wt\""
     # ENOSPC guard (2026-07-07): prune the shared CARGO_TARGET_DIR's debug tree BETWEEN dispatches
     # when its volume runs low, instead of dying mid-gate. `;` not `&&` — the guard is fail-safe
     # (always exits 0) and must never gate the exec either way.
@@ -443,7 +367,7 @@ drovr_dispatch_impl() {
     if [ "$fresh_wt" = 1 ]; then
       # Worktree base comes from repo policy (DL_WORKTREE_BASE, default origin/main). Fetch first ONLY
       # when the segment before the first slash is an actual remote — a slash-y LOCAL branch (feat/x)
-      # must not be misread as remote+branch (found by the cortex P2 run, 2026-07-09).
+      # must not be misread as remote+branch.
       local _base="$DL_WORKTREE_BASE" _fetch
       _fetch="$(_drovr_base_fetch "$DL_REPO_PATH" "$_base")"
       cmd="cd \"$DL_REPO_PATH\" && ${_fetch}git worktree add \"$wt\" -b \"worktree-$DL_WORKTREE_NAME\" \"$_base\" && $tguard $exec_cmd"
@@ -469,22 +393,11 @@ drovr_dispatch_impl() {
 # REFUSES iter-1 (rc=5) while a plan exists unapproved, and — under DL_PLAN_FIRST=1 — while no plan exists.
 # Use when a slice has no plan-of-record or open high-impact decisions; skip when the brief already carries
 # the decisions (a reviewed plan-of-record) — the checkpoint would be pure latency there.
-# FORGE ONLY (2026-07-14, maintainer decision): forge plans on the muse agent, which is mode-enforced
-# read-only, so the headless plan phase carries a real guarantee. Grok arms are REFUSED here: grok's own
-# plan mode cannot run headless (its interactive approval loop blocks at the first tool use and nothing
-# can answer — bisected 2026-07-11, wired ff4e408 / reverted a96a7f1), and a headless grok "plan" under
-# --always-approve would be a prompt contract with no mode enforcement — retired now that both real plan
-# paths (muse, TUI) have mode-level guarantees. Grok plan phases go through drovr_dispatch_plan_tui.
-# Resident TUI impl arms (claude / legacy grok) have no plan trigger wired either.
+# Headless plan-first is removed with forge. Use drovr_dispatch_plan_tui.
 drovr_dispatch_plan() {
-  local task="$1" brief="${2:-}"
-  case "${DL_IMPL_AGENT:-forge}" in
-    forge) ;;
-    composer-fast|grok-build|grok-4.5)
-      echo "dispatch_plan: grok plan phases are TUI-only — headless grok plan mode dies at its first interactive approval (upstream), and prompt-contract-only planning is retired; use drovr_dispatch_plan_tui $task \"<brief>\"" >&2; return 2 ;;
-    *) echo "dispatch_plan: headless plan-first is forge-only (muse agent); DL_IMPL_AGENT='$DL_IMPL_AGENT'" >&2; return 2 ;;
-  esac
-  drovr_dispatch_impl "$task" 0 "$brief"
+  local task="$1"
+  echo "dispatch_plan: headless plan-first is removed; use drovr_dispatch_plan_tui $task \"<brief>\"" >&2
+  return 2
 }
 
 # drovr_dispatch_plan_tui <task> "<brief>" : INTERACTIVE plan phase (DL_PLAN_TUI, 2026-07-11, maintainer
@@ -522,7 +435,7 @@ drovr_dispatch_plan_tui() {
   _fill "$_DROVR_TMPL/prompt-impl-plan-tui.txt" > "$DL_ITERDIR/impl-prompt.txt"
   local wt=".claude/worktrees/$DL_WORKTREE_NAME" pf="$DL_ITERDIR/impl-prompt.txt"
   local _base="$DL_WORKTREE_BASE" _fetch; _fetch="$(_drovr_base_fetch "$DL_REPO_PATH" "$_base")"
-  drovr_send "$iid" "cd \"$DL_REPO_PATH\" && ${_fetch}git worktree add \"$wt\" -b \"worktree-$DL_WORKTREE_NAME\" \"$_base\" && cd \"$wt\" && env -u DATABASE_URL -u APP_DATABASE_URL grok --permission-mode plan$_pflag \"\$(cat '$pf')\"" \
+  drovr_send "$iid" "cd \"$DL_REPO_PATH\" && ${_fetch}git worktree add \"$wt\" -b \"worktree-$DL_WORKTREE_NAME\" \"$_base\" && cd \"$wt\" && env -u DATABASE_URL -u APP_DATABASE_URL grok -m grok-4.6 --permission-mode plan$_pflag \"\$(cat '$pf')\"" \
     || { echo "dispatch_plan_tui: dispatch refused (workspace guard)" >&2; return 3; }
   # yolo-within-plan: wait for the resident grok to report in, then ONE Ctrl+o (herdr key name is
   # exactly "Ctrl+o" — C-o/ctrl-o/^O are rejected). Before grok is up the keypress would land in zsh
@@ -631,15 +544,15 @@ drovr_dispatch_teardown() {
   local trig; trig="$(sed -e "s#{{TASK}}#${DL_TASK}#g" -e "s#{{BUSDIR}}#${DL_BUSDIR}#g" \
       -e "s#{{WORKTREE_NAME}}#${DL_WORKTREE_NAME}#g" -e "s#{{ARCHIVE_DIR}}#${DL_ARCHIVE_DIR}#g" \
       "$_DROVR_TMPL/trigger-teardown.txt")"
-  # Find whichever impl pane ran this task (grok-headless/forge are shell arms — the default + escalation).
-  local snap iid label; snap="$(drovr_panes)"                 # one snapshot + here-string (setpgrp-flake guard)
-  for label in grok-headless-implementation forge-implementation claude-implementation grok-implementation; do
+  # Find whichever impl pane ran this task.
+  local snap iid label; snap="$(drovr_panes)"
+  for label in grok-headless-implementation claude-implementation grok-implementation; do
     iid="$(pane_id_for_label "$label" <<< "$snap" || true)"
     [ -n "$iid" ] && break
   done
   [ -n "$iid" ] || { echo "teardown: no implementation pane found" >&2; return 1; }
-  if [ "$label" = forge-implementation ] || [ "$label" = grok-headless-implementation ]; then
-    # forge/grok-headless panes are shells with no ExitWorktree tool — remove the worktree + branch and archive the bus
+  if [ "$label" = grok-headless-implementation ]; then
+    # grok-headless panes are shells with no ExitWorktree tool — remove the worktree + branch and archive the bus
     # directly (cd to root first: an iter>=2 shell sits INSIDE the worktree, which blocks its removal).
     local wt=".claude/worktrees/$DL_WORKTREE_NAME"
     drovr_send "$iid" "cd \"$DL_REPO_PATH\" && git worktree remove \"$wt\" --force && git branch -D \"worktree-$DL_WORKTREE_NAME\"; mkdir -p \"$DL_ARCHIVE_DIR\" && mv \"$DL_BUSDIR\" \"$DL_ARCHIVE_DIR/$DL_TASK-done\"" \

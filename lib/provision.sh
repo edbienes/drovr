@@ -144,13 +144,10 @@ _drovr_busy() {
     snap="$(drovr_panes)"
     st="$(pane_status_for_label "$label" <<< "$snap" 2>/dev/null || echo unknown)"
     [ "$st" = working ] || [ "$st" = blocked ] || [ "$st" = unknown ]
-  elif [ "$label" = forge-implementation ] || [ "$label" = grok-headless-implementation ]; then
-    # forge/grok-headless panes are shells, not agents — busy iff the headless exec process is running. Like
-    # the grok branch this is LIBERAL (completion is read from the bus_ready result.md sentinel, never from here, so
-    # a false-busy only costs a wait). ponytail: host-wide pgrep; scope to the worktree if loops overlap.
-    local pat='forge -p'
-    [ "$label" = grok-headless-implementation ] && pat='grok -p'
-    pgrep -f "$pat" >/dev/null 2>&1
+  elif [ "$label" = grok-headless-implementation ]; then
+    # grok-headless panes are shells, not agents — busy iff grok -p is running. Liberal:
+    # completion is the bus_ready result.md sentinel, never this predicate.
+    pgrep -f 'grok -p' >/dev/null 2>&1
   else
     local snap; snap="$(drovr_panes)"
     [ "$(pane_status_for_label "$label" <<< "$snap" 2>/dev/null || echo unknown)" = working ]
@@ -165,7 +162,7 @@ _drovr_busy() {
 # `Shift+Tab:mode │ Ctrl+.:shortcuts`, a working one `Ctrl+c:cancel`/`Ctrl+Enter:interject`/`⇣<n>`; a bare
 # zsh renders none of these (grok's TUI leaves the screen with it). Claude panes: any real agent_status
 # (working/idle/done/blocked…) — a shell pane reads 'unknown' from the snapshot. Shell-arm labels
-# (forge/grok-headless) are plain shells BY DESIGN → always alive. Same setpgrp-flake-safe forms as
+# (grok-headless) are plain shells BY DESIGN → always alive. Same setpgrp-flake-safe forms as
 # _drovr_busy (external pipeline / snapshot + here-string).
 _drovr_alive() {
   local pid="$1" label="$2"
@@ -185,7 +182,7 @@ _drovr_alive() {
       herdr pane read "$pid" --source visible 2>/dev/null \
         | grep -qE 'Shift\+Tab:mode|Ctrl\+\.:shortcuts|Ctrl\+c:cancel|Ctrl\+Enter:interject|⇣[0-9]|│ ❯|Grok Build +[0-9]'
       ;;
-    forge-implementation|grok-headless-implementation|grok-plan-tui)
+    grok-headless-implementation|grok-plan-tui)
       return 0 ;;
     *)
       local snap st
@@ -233,7 +230,7 @@ _drovr_alive() {
 # _drovr_grok_effort <value> : the ` --reasoning-effort <level>` fragment for a grok launch/exec line,
 # or NOTHING when the value is empty (grok then uses its own default, `high`). Grok's menu tops out at
 # `high` — the CLI hard-refuses anything else ("unknown effort level; use one of: high, medium, low") —
-# so an `xhigh` pin CLAMPS here rather than refusing the dispatch: xhigh is a legitimate forge value
+# so an `xhigh` pin CLAMPS here rather than refusing the dispatch: xhigh is a legitimate shared-tier value
 # carried by a shared tier-2 knob, not a typo, and every caller fail-closes on typos before reaching us.
 _drovr_grok_effort() {
   local e="${1:-}"
@@ -245,14 +242,14 @@ _drovr_grok_effort() {
 _drovr_launch_for() {
   case "$1" in
     claude-code-review)    printf '%s\n' 'claude --dangerously-skip-permissions --model opus --effort xhigh' ;;
-    grok-pressure-test)    printf '%s\n' 'grok --always-approve --reasoning-effort high' ;;
+    grok-pressure-test)    printf '%s\n' 'grok -m grok-4.6 --always-approve --reasoning-effort high' ;;
     claude-implementation) printf '%s\n' 'claude --dangerously-skip-permissions --model opus --effort high' ;;
-    grok-implementation)   printf '%s\n' "grok --always-approve$(_drovr_grok_effort "${DL_IMPL_EFFORT:-}") --worktree=${DL_WORKTREE_NAME:-drovr-impl}" ;;
-    # forge/grok-headless aren't resident agents — each pane is a plain shell. "Launch" just parks it at
-    # the repo root; the actual headless exec (and its worktree) is dispatched per-iter by drovr_dispatch_impl.
+    grok-implementation)   printf '%s\n' "grok -m grok-4.6 --always-approve$(_drovr_grok_effort "${DL_IMPL_EFFORT:-}") --worktree=${DL_WORKTREE_NAME:-drovr-impl}" ;;
+    # grok-headless isn't a resident agent — the pane is a plain shell. "Launch" parks it at
+    # the repo root; the actual grok -p exec is dispatched per-iter by drovr_dispatch_impl.
     # grok-plan-tui parks the same way: drovr_dispatch_plan_tui sends the worktree + resident
-    # `grok --permission-mode plan` launch itself (DL_PLAN_TUI, 2026-07-11).
-    forge-implementation|grok-headless-implementation|grok-plan-tui)  printf '%s\n' "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\"" ;;
+    # `grok --permission-mode plan` launch itself.
+    grok-headless-implementation|grok-plan-tui)  printf '%s\n' "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\"" ;;
     *) return 1 ;;
   esac
 }
@@ -291,8 +288,8 @@ _drovr_reset() {
     drovr_send "$id" "cd \"$root\"" || return 3
     return 0
   fi
-  if [ "$label" = forge-implementation ] || [ "$label" = grok-headless-implementation ]; then
-    # forge/grok-headless panes are stateless shells — the prior task's worktree may already be torn down, so
+  if [ "$label" = grok-headless-implementation ]; then
+    # grok-headless panes are stateless shells — the prior task's worktree may already be torn down, so
     # just cd back to repo root (the per-iter dispatch re-creates/re-enters the worktree). No /exit, no relaunch.
     drovr_send "$id" "cd \"$root\"" || return 3
     return 0
