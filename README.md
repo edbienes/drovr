@@ -45,12 +45,40 @@ Full inventory of every herdr call site: `docs/herdr-touchpoints.md`.
 
 ## Install
 
-The repo **is** the install — no build step. Claude Code loads it as a user-scope skill:
+Prefer a **plugin install**. One `plugin update` refreshes the playbook (how to dispatch, gate,
+review, and when Sol via `cursor-agent` is allowed). It does **not** rewrite a consumer repo's
+cast (ADR-0006, ktor `orchestration.md`, py `agent-orchestration.md`). Those files still own
+*whether this project* uses a seat.
+
+**Grok**
+
+```sh
+grok plugin marketplace add edbienes/drovr
+grok plugin install drovr --trust
+# later, after a drovr release:
+grok plugin update drovr
+```
+
+**Claude Code**
+
+```sh
+claude plugin marketplace add edbienes/drovr
+claude plugin install drovr@drovr
+# later:
+claude plugin marketplace update drovr
+```
+
+Direct install without adding a marketplace also works: `grok plugin install edbienes/drovr --trust`.
+
+**Clone fallback** (still valid; Grok also reads `~/.claude/skills/`):
 
 ```sh
 git clone https://github.com/edbienes/drovr ~/.claude/skills/drovr
 ~/.claude/skills/drovr/test/run-tests.sh   # offline; stubs herdr — safe anywhere
 ```
+
+If both a clone and a plugin exist, remove or stop using the clone so you do not run two playbooks.
+The skill resolves `lib/` from `CLAUDE_PLUGIN_ROOT` / `GROK_PLUGIN_ROOT`, then the clone path.
 
 > drovr was born as an internal harness called `devloop`; everything now uses the `drovr` name
 > (skill, `~/.drovr/` bus, `.drovr/config`). The `DL_*` env prefix stays — read it as **D**rovr **L**oop.
@@ -95,6 +123,14 @@ orchestrator) and invoke the `drovr` skill with the task brief. The orchestrator
 the implementation/review panes, dispatches, gates, triages — and stops at triage; **merge is
 always yours**.
 
+### On-demand Sol (`cursor-agent`)
+
+The standing reviewers stay Claude `/code-review` + Grok `/pressure-test`. GPT-5.6 Sol is optional
+and on-demand: the orchestrator may start `cursor-agent` with herdr `--kind cursor` and a pinned
+`gpt-5.6-sol-*` model for a second opinion or a one-shot audit when those two lenses disagree.
+It is not a `DL_IMPL_AGENT`, not a third standing lens, and not the old OpenAI-CLI impl arm
+(that arm stays gone). Launch lines and the “do not vote-count” rule live in `SKILL.md`.
+
 ## Threat model (read this before adopting)
 
 drovr coordinates **unsandboxed** coding agents. Be honest with yourself about what that means:
@@ -121,7 +157,8 @@ drovr coordinates **unsandboxed** coding agents. Be honest with yourself about w
 
 ## Docs
 
-- `SKILL.md` — the orchestrator playbook (the skill itself)
+- `SKILL.md` — the orchestrator playbook (the skill itself), including the on-demand `cursor-agent` seat
+- `.claude-plugin/` / `.grok-plugin/` — marketplace + plugin manifests (same repo, both CLIs)
 - `docs/herdr-touchpoints.md` — host contract + P3 inventory
 - `docs/extraction-spec.md` — how this was extracted from its first consumer
 - `lib/` — bus, provisioning, dispatch; `test/` — offline suite

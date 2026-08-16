@@ -1,0 +1,14 @@
+{
+  "name": "drovr",
+  "version": "0.2.0",
+  "description": "Watchable herdr control-room loop: worktree impl, repo-declared gate, Claude + Grok dual-lens, human-gated merge. On-demand GPT-5.6 Sol via cursor-agent is playbook-only, not a standing lens.",
+  "author": {
+    "name": "Ed Bienes",
+    "url": "https://github.com/edbienes"
+  },
+  "homepage": "https://github.com/edbienes/drovr",
+  "repository": "https://github.com/edbienes/drovr",
+  "license": "MIT",
+  "keywords": ["herdr", "review", "worktree", "dual-lens"],
+  "skills": ["./"]
+}

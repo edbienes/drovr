@@ -10,14 +10,17 @@ Precondition: you are the `claude-orchestrator` pane inside herdr. The bus is ex
 `~/.drovr/<repo-slug>/<task>/` (absolute paths only). You never enter a worktree; you never
 `rm -rf` (your pane is deny-ruled — clean up with `mv` to `~/.drovr/<repo>/.archive/`).
 The MVP runs **two local model lenses** on the branch — Claude (claude-code-review, via `/code-review`)
-+ Grok (grok-pressure-test, via `/pressure-test`). The roster is **Claude + Grok only** (maintainer
-decision 2026-07-07; the codex arm and the once-planned Codex/GPT review lens are gone). (forge — Claude via
++ Grok (grok-pressure-test, via `/pressure-test`). The **standing** roster is Claude + Grok (maintainer
+decision 2026-07-07). The old OpenAI-CLI impl arm stays gone; do not add it back. GPT-5.6 Sol is
+**on-demand only**, via `cursor-agent` (herdr `--kind cursor`) — see “On-demand cursor-agent seat”
+below. It is not a third dual-lens and not a `DL_IMPL_AGENT`. (forge — Claude via
 `~/.forge/.forge.toml` — is the default **implementation** arm, with grok-build/composer-fast/claude/grok
 as escalation/fallbacks — see DL_IMPL_AGENT below.) No PR is opened —
 Claude's PR-only built-in `/review` and its Phase-2/CI gate stay with the impl-loop build (§17).
 MVP target = **current branch vs main**.
 
 ## Library
+Source from `$DROVR_HOME` (plugin root, or `~/.claude/skills/drovr` on the clone fallback):
 - `. lib/bus.sh`        → bus_task_dir, bus_write, bus_ready, bus_read  (sentinel = `END-OF-FILE`)
 - `. lib/provision.sh`  → drovr_workspace_id, drovr_self_pane_id, drovr_panes (workspace-scoped
                           list), drovr_send (GUARDED send), pane_id_for_label, pane_status_for_label,
@@ -41,7 +44,9 @@ MVP target = **current branch vs main**.
 # (git rev-parse) then collapses the path to ~/.drovr//… and the poll false-DEADLINEs while the
 # reviews actually landed. Pin the slug BEFORE sourcing.
 export DROVR_REPO_SLUG="<repo-slug>"
-. ~/.claude/skills/drovr/lib/bus.sh
+# Resolve the install you are running (plugin update vs clone). Do not hardcode ~/.claude/skills/drovr.
+: "${DROVR_HOME:=${CLAUDE_PLUGIN_ROOT:-${GROK_PLUGIN_ROOT:-$HOME/.claude/skills/drovr}}}"
+. "$DROVR_HOME/lib/bus.sh"
 TASK="$1"
 DEADLINE=$((SECONDS+600))                 # 10-min overall ceiling
 while [ "$SECONDS" -lt "$DEADLINE" ]; do
@@ -102,7 +107,7 @@ full-bypass implementation pane owns the worktree, the in-worktree gate, all git
 teardown. Per-iteration bus subdirs (`iter-<n>/`) prevent stale-file false-ready across attempts.
 
 **Implementor arm — `DL_IMPL_AGENT`** = `forge` (DEFAULT) | `grok-4.5` | `composer-fast` | `claude` | `grok` (`grok-build` = backcompat alias for `grok-4.5` — upstream retired the grok-build model 2026-07; grok-4.5 is the CLI default, Opus-4.8-class).
-**`codex` is REMOVED (maintainer decision 2026-07-07 — the roster is Claude + Grok only)**; any unknown value errors.
+**The old OpenAI-CLI impl arm is REMOVED** (maintainer decision 2026-07-07 — standing roster is Claude + Grok); any unknown `DL_IMPL_AGENT` value errors. Do not add `cursor` as an impl arm. Sol rides `cursor-agent` as an orchestrator-spawned on-demand seat (below), not this switch.
 All arms write the same `gate.md`+`result.md` bus
 contract, so review/triage/teardown are arm-agnostic. `forge` (the DEFAULT) is a headless shell arm via
 `forge -p … -C <wt> --agent forge` (impl iters; plan phases run `--agent muse` — see Plan-first) —
@@ -222,7 +227,9 @@ Library additions (`. lib/dispatch.sh` / `. lib/bus.sh`):
 2. **Poll (background, never foreground):** dual-ready on `iter-<n>/{result.md,gate.md}`. Pin
    `DROVR_REPO_SLUG` before sourcing `bus.sh`. Re-invokes on `BOTH-READY` / `DEADLINE`.
 ```bash
-export DROVR_REPO_SLUG="<repo-slug>"; . ~/.claude/skills/drovr/lib/bus.sh
+export DROVR_REPO_SLUG="<repo-slug>"
+: "${DROVR_HOME:=${CLAUDE_PLUGIN_ROOT:-${GROK_PLUGIN_ROOT:-$HOME/.claude/skills/drovr}}}"
+. "$DROVR_HOME/lib/bus.sh"
 TASK="$1"; N="$2"; DEADLINE=$((SECONDS+900))
 while [ "$SECONDS" -lt "$DEADLINE" ]; do
   if bus_ready "$TASK" "iter-$N/result.md" && bus_ready "$TASK" "iter-$N/gate.md"; then echo "BOTH-READY"; exit 0; fi
@@ -280,3 +287,42 @@ State is the filesystem. `status_get <task> phase`/`iter` give the position; rec
 `ExitWorktree(remove)` once at teardown. Never re-enter/exit per iteration (cannot create a worktree while
 in one). Mirror the "don't reset mid-task" rule — provision/`_drovr_reset` fires only at iter 1; iter≥2
 reuses the warm impl + reviewer panes without resetting.
+
+## On-demand cursor-agent seat (2026-08-17)
+
+Standing loop is unchanged: Claude `/code-review` + Grok `/pressure-test`, then weighted triage.
+GPT-5.6 Sol is **not** a third lens and **not** a `DL_IMPL_AGENT`. The orchestrator may spawn it
+through **`cursor-agent`** (herdr `--kind cursor`) when a third family earns a turn.
+
+**When to call**
+
+- High-IQ second opinion on an open *decision* (prefer Sol when Grok planned), then re-lock.
+- One logic/invariant audit when the two standing lenses **disagree**, or when Grok planned **and**
+  implemented.
+- Rare locked safety impl only if the consumer's cast says so. Do not make this the volume arm.
+
+**When not to call**
+
+- Every iter. Every docs/CI slice. As orchestrator. As a standing reviewer next to Claude+Grok.
+- Via herdr `--kind` for the old OpenAI CLI, or with models `gpt-5.3-codex-*` / `cursor-grok-*` /
+  `auto` (auto can pick Grok and collapse independence).
+
+**Launch (workspace-scoped split from `drovr_self_pane_id`, same as any extra pane)**
+
+```text
+# Second opinion (read-only)
+herdr agent start sol-second --kind cursor --pane <id> -- --model gpt-5.6-sol-high --mode plan --trust
+
+# Disagree-audit (briefed report only; no --yolo / --force)
+herdr agent start sol-audit --kind cursor --pane <id> -- --model gpt-5.6-sol-xhigh --trust
+
+# Headless one-shot
+cursor-agent -p --trust --mode ask --model gpt-5.6-sol-high "<audit brief>"
+```
+
+Ask Sol to write `iter-<n>/reviews/sol.md` (or `reviews/sol.md` on the review-only stage) with the
+same `END-OF-FILE` sentinel. Weight it in triage like a single-reviewer depth finding — do **not**
+vote-count three files. Poll that file; herdr's Cursor manifest often reports `blocked` while idle.
+
+Do **not** pass `cursor-agent --worktree`. The task worktree is already drovr's. Do not add `cursor`
+to `provision_reviewers` or `DL_IMPL_AGENT`.

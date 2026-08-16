@@ -1,0 +1,17 @@
+{
+  "name": "drovr",
+  "description": "drovr — multi-agent dev loop with a human-gated merge",
+  "owner": {
+    "name": "Ed Bienes"
+  },
+  "plugins": [
+    {
+      "name": "drovr",
+      "description": "Worktree impl, repo-declared gate, Claude + Grok dual-lens, human-gated merge. Updates the harness playbook (how), not a consumer repo's cast (when).",
+      "version": "0.2.0",
+      "source": "./",
+      "homepage": "https://github.com/edbienes/drovr",
+      "keywords": ["herdr", "review", "worktree"]
+    }
+  ]
+}
