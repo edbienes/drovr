@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "plugins": {
+    "drovr": {
+      "version": "0.2.2",
+      "components": {
+        "skills": [
+          {
+            "name": "drovr",
+            "description": "Watchable herdr control-room loop: worktree impl, repo-declared gate, Claude + Grok dual-lens, human-gated merge."
+          }
+        ]
+      }
+    }
+  }
+}

@@ -54,10 +54,13 @@ cast (ADR-0006, ktor `orchestration.md`, py `agent-orchestration.md`). Those fil
 
 ```sh
 grok plugin marketplace add edbienes/drovr
+grok plugin marketplace update drovr
 grok plugin install drovr --trust
 # later, after a drovr release:
 grok plugin update drovr
 ```
+
+If the Marketplace tab shows **drovr (0 plugins)**, refresh the source (`r` in that tab, or `grok plugin marketplace update`) and install `drovr`. Need 0.2.2 or newer.
 
 **Claude Code**
 

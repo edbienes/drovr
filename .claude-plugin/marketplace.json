@@ -8,7 +8,7 @@
     {
       "name": "drovr",
       "description": "Worktree impl, repo-declared gate, Claude + Grok dual-lens, human-gated merge. Updates the harness playbook (how), not a consumer repo's cast (when).",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "source": "./",
       "homepage": "https://github.com/edbienes/drovr",
       "keywords": ["herdr", "review", "worktree"]
