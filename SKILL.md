@@ -21,18 +21,24 @@ MVP target = **current branch vs main**.
 ## Library
 Source from `$DROVR_HOME` (plugin root, or `~/.claude/skills/drovr` on the clone fallback):
 - `. lib/bus.sh`        → bus_task_dir, bus_write, bus_ready, bus_read  (sentinel = `END-OF-FILE`)
-- `. lib/provision.sh`  → drovr_workspace_id, drovr_self_pane_id, drovr_panes (workspace-scoped
-                          list), drovr_send (GUARDED send), pane_id_for_label, pane_status_for_label,
-                          provision_role, provision_reviewers
+- `. lib/provision.sh`  → drovr_workspace_id, drovr_self_pane_id, drovr_panes / drovr_tabs
+                          (workspace-scoped lists), drovr_send (GUARDED send), pane_id_for_label,
+                          pane_status_for_label, provision_role, provision_reviewers
 - `. lib/dispatch.sh`   → drovr_dispatch_reviews, drovr_collect_all, drovr_escalate
 
 ## Run the review stage on task <task> (target = current branch vs main)
 
 1. **Provision (task boundary):** `provision_reviewers` — reuses ANY present, non-`working` pane
    (idle/done/blocked) and resets it (`_drovr_reset`: Claude panes `/exit`→`cd <repo root>`→relaunch,
-   so a pane that hopped a worktree last task is back at the right tree; grok `/new`), or splits+launches
+   so a pane that hopped a worktree last task is back at the right tree; grok `/new`), or creates+launches
    one only when the pane is truly absent. Never duplicates a pane; never resets mid-iteration.
-   Layout: review right-of-orchestrator, grok right-of-implementation.
+   Layout is **tabs in this workspace**, not a 2x2 split of tab `main`:
+   ```
+   tab main:            orchestrator only   (do not split this tab for seats)
+   tab implementation:  impl / plan-tui     (split inside this tab if both)
+   tab reviews:         claude-code-review | grok-pressure-test
+   ```
+   New seats: `tab create --no-focus` (or adopt/split inside an existing labeled tab). Never steal focus.
 2. **Dispatch:** `drovr_dispatch_reviews <task>` — writes `task.md`, fires both **prose** triggers
    through `drovr_send`. claude-code-review runs `/code-review high` (review-only) and writes its findings
    to `reviews/claude.md`; grok runs `/pressure-test` and writes `reviews/grok.md`.
@@ -70,10 +76,12 @@ echo "DEADLINE"; exit 2
 
 ## Workspace safety (non-negotiable)
 A herdr server can host several workspaces (other sessions' rooms). NEVER resolve / `/clear` / close /
-split a pane off the global `herdr pane list`. Every live resolution goes through `drovr_panes`
-(scoped to our `drovr_workspace_id`, from `$HERDR_PANE_ID`); every send to a reviewer pane goes
-through `drovr_send` (refuses a cross-workspace target, return 3); new panes split from
-`drovr_self_pane_id`. A stray label match against a foreign room is how a `/review` leaked before.
+split a pane off the global `herdr pane list` (or `herdr tab list`). Every live resolution goes through
+`drovr_panes` / `drovr_tabs` (scoped to our `drovr_workspace_id`, from `$HERDR_PANE_ID`); every send to
+a reviewer pane goes through `drovr_send` (refuses a cross-workspace target, return 3); new role panes
+land on a labeled tab in THIS workspace (`tab create --no-focus`, or adopt/split inside that tab).
+Never split the orchestrator tab for a reviewer. A stray label match against a foreign room is how a
+`/review` leaked before.
 
 ## After dispatch (sticky)
 
@@ -293,7 +301,7 @@ through **`cursor-agent`** (herdr `--kind cursor`) when a third family earns a t
 - Via herdr `--kind` for the old OpenAI CLI, or with models `gpt-5.3-codex-*` / `cursor-grok-*` /
   `auto` (auto can pick Grok and collapse independence).
 
-**Launch (workspace-scoped split from `drovr_self_pane_id`, same as any extra pane)**
+**Launch (workspace-scoped: land on a labeled tab in THIS workspace, never split tab `main`)**
 
 ```text
 # Second opinion (read-only)

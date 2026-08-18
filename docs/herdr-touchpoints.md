@@ -14,8 +14,9 @@ mentions are prose/safety rules only.
 | # | Site | Command | Purpose | Test coverage |
 |---|------|---------|---------|---------------|
 | 1 | `provision.sh:13` `drovr_workspace_id` | `pane get $HERDR_PANE_ID` | own workspace id — the scoping root | env-contract; fails loudly if unset |
-| 2 | `provision.sh:19` `drovr_self_pane_id` | `pane get $HERDR_PANE_ID` | own pane id (split anchor fallback) | same |
+| 2 | `provision.sh:19` `drovr_self_pane_id` | `pane get $HERDR_PANE_ID` | own pane id (identity; not a split fallback) | same |
 | 3 | `provision.sh:26` `drovr_panes` | `pane list --workspace <ws>` | the ONLY sanctioned pane list (workspace-scoped) | fixture `pane_list_scoped.json` |
+| 3b | `provision.sh` `drovr_tabs` | `tab list --workspace <ws>` | the ONLY sanctioned tab list (workspace-scoped; labels collide across rooms) | fixture `tab_list_scoped.json` |
 | 4 | `provision.sh:59` `drovr_send` | `pane run` | guarded short-trigger fire (refuses cross-workspace, rc 3) | `herdr()` shell stub |
 | 5 | `provision.sh:82` `drovr_send_slash` | `pane send-text` | long/slash text, no Enter (paste-pill semantics) | stub counts 1 text send |
 | 6 | `provision.sh:84` `drovr_send_slash` | `pane send-keys <pid> Enter` | discrete submit (key name is `Enter`, NOT `Return`) | stub counts exactly 2 Enters |
@@ -23,8 +24,9 @@ mentions are prose/safety rules only.
 | 8 | `_drovr_busy` (grok arm) | `pane list --workspace` (status) | busy = `agent_status` ∈ working/blocked/unknown (reliable since grok manifest ≥ 2026.07.03.1, herdr#1055; verified live 2026-07-09 on 0.2.93) | functional stubs |
 | 9 | `_drovr_alive` (grok arm) | `pane list --workspace` + `pane read` fallback | alive = any real `agent_status`; chrome scrape kept ONLY as the `unknown` fallback (fail-closed callers) | grep-pinned fallback |
 | 10 | `provision.sh:282` `_drovr_settle` | `wait agent-status --status idle` | post-`/clear` settle before fire (`wait output` glyph-match is FORBIDDEN — test asserts its absence) | grep-pinned |
-| 11 | `provision.sh:343` `provision_role` | `pane split --no-focus` | create role pane from its anchor (JSON → `result.pane.pane_id`) | LIVE dry-run only |
-| 12 | `provision.sh:345` `provision_role` | `pane rename` | label the role pane | LIVE dry-run only |
+| 11 | `provision.sh` `provision_role` | `tab create --workspace --label --no-focus` | create the role's tab when missing (JSON → `result.tab` + `result.root_pane`) | stubbed in `provision_test.sh` |
+| 11b | `provision.sh` `provision_role` | `pane split --no-focus` | WITHIN-tab only (second reviewer / impl+plan). Never split tab `main`. JSON → `result.pane.pane_id` | stubbed in `provision_test.sh` |
+| 12 | `provision.sh` `provision_role` | `pane rename` | label the role pane | stubbed in `provision_test.sh` |
 | 13 | `dispatch.sh:132` `_drovr_fire` | `pane send-keys <pid> Enter` | retry-submit a stuck pill on delivery retry | grep count == 1 |
 
 Indirect consumption (no direct call, reads `drovr_panes` JSON): `pane_id_for_label`,
@@ -48,7 +50,9 @@ The coupling is semantics, not CLI shape:
    idle→working→blocked→idle including the fresh-boot home screen. The manifest version is
    part of the host floor; a chrome scrape survives only as `_drovr_alive`'s unknown-fallback.
 6. `pane read --source visible` renders the current viewport (the scrape substrate).
-7. `pane split` JSON shape (`result.pane.pane_id`); `pane rename`; `wait agent-status`.
+7. `tab create --no-focus` JSON shape (`result.tab` + `result.root_pane.pane_id`);
+   `pane split --no-focus` JSON shape (`result.pane.pane_id`) for within-tab splits only;
+   `pane rename`; `wait agent-status`. `tab list` / `tab create` MUST take `--workspace`.
 
 Completion is NEVER read from any of the above: task/review completion comes only from bus
 file sentinels (`result.md` / `gate.md` / `reviews/*.md` + END-OF-FILE). Pane state is used
@@ -100,7 +104,7 @@ Upstream repro draft (worst status bug): `docs/upstream/grok-agent-status-false-
       2 real lens findings (gofmt drift, vacuous precedence assertion), iter-2 fixed both,
       gate PASS, both lenses re-reviewed, triage verdict **ready-for-human-merge**, loop
       stopped at the human gate. Host then: **herdr 0.7.3, protocol 16** — load-bearing
-      integrations = the 7-point contract above, now in README "Supported host". One new
+      integrations = the host contract above, now in README "Supported host". One new
       gotcha confirmed: a fresh workspace's root pane inherits the SERVER process cwd
       (workspace `--cwd` did not place the shell) — reset with cd + relaunch, same as splits.
 - [x] Foreclosure check (2026-07-09): plugin examples skimmed, "not v1" recorded above,

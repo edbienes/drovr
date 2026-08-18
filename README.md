@@ -30,8 +30,11 @@ The load-bearing host contract (what a herdr version bump can break):
    with the Grok Build detection manifest ≥ **2026.07.03.1** (herdr#1055, auto-fetched;
    check `herdr server agent-manifests`) — for Grok panes too. The manifest version is part
    of this host floor (see `docs/upstream/grok-agent-status-false-idle.md`).
-6. `pane split --no-focus` JSON shape (`result.pane.pane_id`), `pane rename`,
-   `wait agent-status`.
+6. `tab list --workspace` / `tab create --workspace --label --no-focus` JSON shape
+   (`result.tab` + `result.root_pane.pane_id`). Role panes land on labeled tabs
+   (`main` / `implementation` / `reviews`), never as a 2x2 split of the orchestrator tab.
+7. `pane split --no-focus` JSON shape (`result.pane.pane_id`) for within-tab splits only,
+   `pane rename`, `wait agent-status`.
 
 Full inventory of every herdr call site: `docs/herdr-touchpoints.md`.
 
@@ -60,7 +63,7 @@ grok plugin install drovr --trust
 grok plugin update drovr
 ```
 
-If the Marketplace tab shows **drovr (0 plugins)**, refresh the source (`r` in that tab, or `grok plugin marketplace update`) and install `drovr`. Need 0.2.2 or newer.
+If the Marketplace tab shows **drovr (0 plugins)**, refresh the source (`r` in that tab, or `grok plugin marketplace update`) and install `drovr`. Need 0.2.3 or newer.
 
 **Claude Code**
 
