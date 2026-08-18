@@ -14,7 +14,8 @@ drovr_workspace_id() {
     | python3 -c 'import sys, json; print(json.load(sys.stdin)["result"]["pane"]["workspace_id"])'
 }
 
-# drovr_self_pane_id : echo our own pane_id (the list-form id, e.g. w...-1) for splitting from us.
+# drovr_self_pane_id : echo our own pane_id (the list-form id, e.g. w...-1). Identity only —
+# new role panes do NOT split from us; they land on a labeled tab.
 drovr_self_pane_id() {
   herdr pane get "${HERDR_PANE_ID:?HERDR_PANE_ID unset — not inside a herdr pane}" \
     | python3 -c 'import sys, json; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])'
@@ -24,6 +25,12 @@ drovr_self_pane_id() {
 # resolution is needed:  drovr_panes | pane_id_for_label claude-code-review
 drovr_panes() {
   herdr pane list --workspace "$(drovr_workspace_id)"
+}
+
+# drovr_tabs : `herdr tab list` SCOPED to our workspace only. Labels collide across workspaces
+# (every room has a "main" / "reviews"); never call `herdr tab list` unscoped.
+drovr_tabs() {
+  herdr tab list --workspace "$(drovr_workspace_id)"
 }
 
 # pane_in_list <pane_id> : read pane-list JSON on stdin; exit 0 iff <pane_id> is present.
@@ -126,6 +133,65 @@ print("unknown"); sys.exit(1)
 ' "$1"
 }
 
+# tab_id_for_label <label> : read `herdr tab list` JSON on stdin; echo matching tab_id (exit 1 if none).
+tab_id_for_label() {
+  python3 -c '
+import sys, json
+label = sys.argv[1]
+tabs = json.load(sys.stdin).get("result", {}).get("tabs", [])
+for t in tabs:
+    if t.get("label") == label:
+        print(t.get("tab_id", "")); sys.exit(0)
+sys.exit(1)
+' "$1"
+}
+
+# root_pane_id_from_tab_create : read `herdr tab create` JSON on stdin; echo result.root_pane.pane_id.
+root_pane_id_from_tab_create() {
+  python3 -c '
+import sys, json
+rp = json.load(sys.stdin).get("result", {}).get("root_pane")
+if isinstance(rp, dict):
+    pid = rp.get("pane_id") or ""
+else:
+    pid = rp or ""
+if pid:
+    print(pid); sys.exit(0)
+sys.exit(1)
+'
+}
+
+# unlabeled_pane_on_tab <tab_id> : first unlabeled, non-working pane on that tab (adopt-able root/child).
+unlabeled_pane_on_tab() {
+  python3 -c '
+import sys, json
+tab = sys.argv[1]
+panes = json.load(sys.stdin).get("result", {}).get("panes", [])
+for p in panes:
+    if p.get("tab_id") != tab:
+        continue
+    if p.get("label"):
+        continue
+    if p.get("agent_status") == "working":
+        continue
+    print(p.get("pane_id", "")); sys.exit(0)
+sys.exit(1)
+' "$1"
+}
+
+# first_pane_on_tab <tab_id> : first pane on that tab (within-tab split anchor). Never crosses tabs.
+first_pane_on_tab() {
+  python3 -c '
+import sys, json
+tab = sys.argv[1]
+panes = json.load(sys.stdin).get("result", {}).get("panes", [])
+for p in panes:
+    if p.get("tab_id") == tab:
+        print(p.get("pane_id", "")); sys.exit(0)
+sys.exit(1)
+' "$1"
+}
+
 # _drovr_busy <pane_id> <label> : exit 0 iff the pane must NOT be fired into. Claude panes: agent_status
 # is reliable ('working'). grok: agent_status is ALSO reliable since herdr's Grok Build detection manifest
 # ≥ 2026.07.03.1 (herdr#1055 rewrote it for ≥0.2.8x chrome; verified live 2026-07-09 on 0.2.93:
@@ -194,8 +260,8 @@ _drovr_alive() {
 }
 
 # ---------------------------------------------------------------------------
-# Room reconcile (Task 5). herdr-side-effecting — verified by LIVE dry-run, not
-# unit tests (you cannot fake a real pane split/clear).
+# Room reconcile (Task 5). herdr-side-effecting create/split is stubbed in provision_test.sh;
+# a live herdr server is still required to prove the JSON shapes.
 #
 # SHELL-FLAKINESS NOTE (discovered live): in this exec context `$( cmd | shell_function )`
 # can intermittently abort the whole eval with "failed to change group ID"
@@ -315,17 +381,14 @@ _drovr_settle() {
   herdr wait agent-status "$1" --status idle --timeout "${2:-15000}" >/dev/null 2>&1 || true
 }
 
-# Split ANCHOR + direction for a newly-created pane: "<anchor-label> <right|down>".
-# A new role pane is split from its anchor so roles land in predictable slots — a 2x2 room:
-#     claude-orchestrator   | claude-code-review
-#     claude-implementation | grok-pressure-test
-# (each agent's reviewer sits to its right). If the anchor pane is missing, provision_role
-# falls back to the orchestrator pane (always present — it's us).
-_drovr_anchor_for() {
+# _drovr_tab_for <role-label> : herdr TAB this role belongs on. Orchestrator stays on "main"
+# and is never provisioned here. Reviewers share "reviews" (they may split inside that tab).
+# Implementors + plan-tui share "implementation".
+_drovr_tab_for() {
   case "$1" in
-    claude-code-review)      printf '%s\n' 'claude-orchestrator right' ;;
-    grok-pressure-test) printf '%s\n' 'claude-implementation right' ;;
-    *)                  printf '%s\n' 'claude-orchestrator down' ;;
+    claude-code-review|grok-pressure-test) printf '%s\n' 'reviews' ;;
+    *implementation*|*plan-tui)            printf '%s\n' 'implementation' ;;
+    *) return 1 ;;
   esac
 }
 
@@ -363,21 +426,34 @@ provision_role() {
     return 2
   fi
 
-  # absent or dead/unknown → create a fresh pane in OUR workspace, split from the role's
-  # anchor pane for a predictable layout. Anchor is resolved from our scoped snapshot;
-  # if it's missing (or somehow not ours) we fall back to the orchestrator pane (us).
-  local anchor_spec anchor_label anchor_dir anchor_id newid launch
-  anchor_spec="$(_drovr_anchor_for "$label")"
-  anchor_label="${anchor_spec%% *}"; anchor_dir="${anchor_spec##* }"
-  anchor_id="$(pane_id_for_label "$anchor_label" <<< "$snap" || true)"
-  if [ -z "$anchor_id" ] || ! drovr_assert_ours "$anchor_id"; then
-    anchor_id="$(drovr_self_pane_id)"   # fallback: orchestrator is always present + ours
+  # absent → land a fresh pane on the role's labeled tab in THIS workspace.
+  # Never split the orchestrator tab ("main") to make a reviewer/impl seat.
+  #   tab missing  → `tab create --no-focus`, adopt result.root_pane
+  #   tab present  → adopt an unlabeled reusable pane on it, else split WITHIN that tab
+  local tab_label tabsnap tab_id newid launch raw anchor_id
+  tab_label="$(_drovr_tab_for "$label")" || { echo "no tab mapping for $label" >&2; return 1; }
+  tabsnap="$(drovr_tabs)"   # SCOPED to our workspace
+  tab_id="$(tab_id_for_label "$tab_label" <<< "$tabsnap" || true)"
+
+  if [ -z "$tab_id" ]; then
+    raw="$(herdr tab create --workspace "$(drovr_workspace_id)" --label "$tab_label" --no-focus)"
+    newid="$(root_pane_id_from_tab_create <<< "$raw")"
+  else
+    newid="$(unlabeled_pane_on_tab "$tab_id" <<< "$snap" || true)"
+    if [ -z "$newid" ]; then
+      anchor_id="$(first_pane_on_tab "$tab_id" <<< "$snap" || true)"
+      if [ -z "$anchor_id" ] || ! drovr_assert_ours "$anchor_id"; then
+        printf 'provision_role: tab %s (%s) has no pane in our workspace — refuse to split main\n' \
+          "$tab_label" "$tab_id" >&2
+        return 1
+      fi
+      newid="$(herdr pane split "$anchor_id" --direction right --no-focus \
+                | python3 -c 'import sys,json;print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')"
+    fi
   fi
-  newid="$(herdr pane split "$anchor_id" --direction "$anchor_dir" --no-focus \
-            | python3 -c 'import sys,json;print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')"
   herdr pane rename "$newid" "$label" >/dev/null 2>&1   # drop rename JSON ack (would pollute return value)
   launch="$(_drovr_launch_for "$label")" || { echo "no launch contract for $label" >&2; return 1; }
-  drovr_send "$newid" "$launch" || return 3   # guarded: new pane is ours by construction (self-split)
+  drovr_send "$newid" "$launch" || return 3   # guarded: new pane is ours (same workspace as the tab)
   _drovr_settle "$newid" 30000   # wait for the fresh agent to come up to idle (agent-status, not a glyph)
   printf '%s\n' "$newid"
 }
